@@ -6,6 +6,14 @@ use mcm_client::Cameras;
 use serde::Serialize;
 use serde_json::json;
 
+// Cockpit extras versions are independent of the extension version. Bump a
+// constant only when that extras payload actually changes. Tracking
+// CARGO_PKG_VERSION makes every extension release look like a new widget,
+// action, or joystick suggestion in Cockpit.
+const WIDGET_VERSION: &str = "1.0.0";
+const ACTION_VERSION: &str = "1.0.0";
+const JOYSTICK_SUGGESTION_VERSION: &str = "1.0.0";
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CockpitExtras {
@@ -168,7 +176,7 @@ fn widgets(cameras: &Cameras) -> Vec<CockpitIframeWidget> {
             iframe_url: format!("/#/?uuid={camera_uuid}&cockpit_mode=true"),
             icon_url: "/assets/logo.svg".to_string(),
             collapsible_container_name: format!("4K Cam ({})", camera.hostname),
-            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            version: Some(WIDGET_VERSION.to_string()),
             start_collapsed: false,
             use_extension_path_as_base_url: true,
         })
@@ -209,7 +217,7 @@ fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
                     "Triggers one-push white balance on {} only.",
                     camera.hostname
                 ),
-                version: env!("CARGO_PKG_VERSION").to_string(), // TODO: freeze this once we settle with a button layout
+                version: ACTION_VERSION.to_string(),
             }]
         })
         .collect::<Vec<CockpitAction>>();
@@ -235,7 +243,7 @@ fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
                 .to_string(),
             }),
             description: "Triggers one-push white balance on every configured 4K Cam.".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: ACTION_VERSION.to_string(),
         },
     );
     actions
@@ -516,7 +524,7 @@ fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
             target_vehicle_types: vec![TargetVehicleType::MavTypeSubmarine],
             description: "4K Cam buttons mapping for BlueROV without gripper".to_string(),
             button_mapping_suggestions: mappings_rov,
-            version: env!("CARGO_PKG_VERSION").to_string(), // TODO: freeze this once we settle with a button layout
+            version: JOYSTICK_SUGGESTION_VERSION.to_string(),
         },
         JoystickMapSuggestion {
             id: "br4kcam-for-bluerov-with-gripper".to_string(),
@@ -524,7 +532,7 @@ fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
             target_vehicle_types: vec![TargetVehicleType::MavTypeSubmarine],
             description: "4K Cam buttons mapping for BlueROV with gripper".to_string(),
             button_mapping_suggestions: mappings_rov_with_gripper,
-            version: env!("CARGO_PKG_VERSION").to_string(), // TODO: freeze this once we settle with a button layout
+            version: JOYSTICK_SUGGESTION_VERSION.to_string(),
         },
         JoystickMapSuggestion {
             id: "br4kcam-for-any-vehicle-types".to_string(),
@@ -532,7 +540,29 @@ fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
             target_vehicle_types: vec![],
             description: "Minimal 4K Cam buttons mapping for any vehicle types".to_string(),
             button_mapping_suggestions: mappings_for_anys,
-            version: env!("CARGO_PKG_VERSION").to_string(), // TODO: freeze this once we settle with a button layout
+            version: JOYSTICK_SUGGESTION_VERSION.to_string(),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extras_versions_are_independent_of_the_extension_version() {
+        let cameras = Cameras::new();
+
+        let actions = actions(&cameras);
+        assert!(!actions.is_empty());
+        for action in &actions {
+            assert_eq!(action.version, ACTION_VERSION);
+        }
+
+        let suggestions = joystick_suggestions(&cameras);
+        assert!(!suggestions.is_empty());
+        for suggestion in &suggestions {
+            assert_eq!(suggestion.version, JOYSTICK_SUGGESTION_VERSION);
+        }
+    }
 }
