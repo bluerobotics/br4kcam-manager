@@ -2,7 +2,6 @@
 macro_rules! generate_update_channel_param_function {
     (
         $fn_name:ident,
-        $expect_fn:ident,
         $field_name:ident,
         $param_prefix:expr,
         $param_suffix:expr,
@@ -78,17 +77,6 @@ macro_rules! generate_update_channel_param_function {
             }
 
             Ok(())
-        }
-
-        fn $expect_fn(
-            parameters: &$crate::parameters::ActuatorsParameters,
-            map: &mut indexmap::IndexMap<String, $crate::parameters::ParamType>,
-        ) {
-            let channel = parameters.$channel_field as u8;
-            map.insert(
-                format!("{}{}_{}", $param_prefix, channel, $param_suffix),
-                $crate::parameters::ParamType::$ty(parameters.$field_name),
-            );
         }
     };
 }

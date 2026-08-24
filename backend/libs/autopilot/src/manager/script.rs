@@ -458,7 +458,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_script_channel_min,
-        expect_owned_script_channel_min,
         script_channel_min,
         "SERVO",
         "MIN",
@@ -468,7 +467,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_script_channel_max,
-        expect_owned_script_channel_max,
         script_channel_max,
         "SERVO",
         "MAX",
@@ -478,7 +476,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_script_channel_trim,
-        expect_owned_script_channel_trim,
         script_channel_trim,
         "SERVO",
         "TRIM",
@@ -529,9 +526,6 @@ pub(super) fn push_owned_expectations(
     Manager::expect_owned_script_servo_function(parameters, map);
     Manager::expect_owned_script_enable(parameters, map);
     Manager::expect_owned_script_gain(parameters, map);
-    Manager::expect_owned_script_channel_min(parameters, map);
-    Manager::expect_owned_script_channel_trim(parameters, map);
-    Manager::expect_owned_script_channel_max(parameters, map);
 }
 
 #[derive(Debug, Default)]
