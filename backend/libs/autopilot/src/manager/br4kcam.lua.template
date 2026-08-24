@@ -5,7 +5,7 @@
 --- For more information, visit https://github.com/BlueRobotics/br4kcam-manager
 --- Version: {{ version }}
 
--- Usage: change the output controlling focus from CameraFocus to "Script1"
+-- Usage: change the output controlling focus from CameraFocus to "{{ script_function_name }}"
 --        but assign CameraFocus to any other "Disabled" channel as we need to read it, as it allows fine-tuning
 
 -- Unique key (0-200). Must not conflict with other scripts
@@ -84,7 +84,7 @@ local function set_zoom_focus_to_trim()
     local zoom_scaled = 1000 * (zoom_trim - zoom_min) / (zoom_max - zoom_min)
     SRV_Channels:set_output_scaled(K_ZOOM, zoom_scaled)
 
-    local script_channel = find_servo_function(K_SCRIPT, "Script1", missing_script_warned)
+    local script_channel = find_servo_function(K_SCRIPT, "{{ script_function_name }}", missing_script_warned)
     if script_channel == nil then return false end
     local script_trim = param:get("SERVO" .. script_channel + 1 .. "_TRIM")
     if script_trim == nil then return false end

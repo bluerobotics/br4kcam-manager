@@ -595,6 +595,8 @@ fn generate_lua_script(config: &CameraActuators) -> Result<String> {
     context.insert("param_prefix", &param_prefix);
     context.insert("margin_gain", &{ config.parameters.focus_margin_gain });
     context.insert("k_script", &(config.parameters.script_function as u8));
+    let script_n = config.parameters.script_function as u8 - api::ScriptFunction::SCRIPT1 as u8 + 1;
+    context.insert("script_function_name", &format!("Script{script_n}"));
     context.insert("closest_points", &config.closest_points.to_lua());
     context.insert("furthest_points", &config.furthest_points.to_lua());
     context.insert("version", env!("CARGO_PKG_VERSION"));
@@ -675,6 +677,17 @@ mod tests {
         assert!(contents.contains("find_servo_function(K_SCRIPT, \"Script1\""));
         assert!(contents.contains("SRV_Channels:set_output_pwm(K_SCRIPT, script_trim)"));
         assert!(contents.contains("servo function not found"));
+    }
+
+    #[test]
+    fn generated_script_uses_configured_script_function() {
+        let mut actuators = CameraActuators::default();
+        actuators.parameters.script_function = crate::api::ScriptFunction::SCRIPT3;
+        let contents = generate_lua_script(&actuators).unwrap();
+        validate_lua(&contents).unwrap();
+        assert!(contents.contains("local K_SCRIPT = 96"));
+        assert!(contents.contains("find_servo_function(K_SCRIPT, \"Script3\""));
+        assert!(!contents.contains("\"Script1\""));
     }
 
     #[test]
