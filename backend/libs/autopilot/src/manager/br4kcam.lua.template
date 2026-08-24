@@ -33,6 +33,7 @@ local MAV_SEVERITY_WARNING = 4
 
 local missing_focus_warned = { false }
 local missing_zoom_warned = { false }
+local missing_script_warned = { false }
 
 local function warn_missing_servo_function(function_name, warned_flag)
     if warned_flag[1] then
@@ -82,6 +83,12 @@ local function set_zoom_focus_to_trim()
     if zoom_max == nil or zoom_min == nil or zoom_trim == nil then return false end
     local zoom_scaled = 1000 * (zoom_trim - zoom_min) / (zoom_max - zoom_min)
     SRV_Channels:set_output_scaled(K_ZOOM, zoom_scaled)
+
+    local script_channel = find_servo_function(K_SCRIPT, "Script1", missing_script_warned)
+    if script_channel == nil then return false end
+    local script_trim = param:get("SERVO" .. script_channel + 1 .. "_TRIM")
+    if script_trim == nil then return false end
+    SRV_Channels:set_output_pwm(K_SCRIPT, script_trim)
 
     return true
 end
