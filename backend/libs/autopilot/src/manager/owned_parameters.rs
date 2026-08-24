@@ -119,6 +119,10 @@ fn prune_to_expectations() {
 }
 
 fn push_all_expectations(parameters: &ActuatorsParameters, map: &mut IndexMap<String, ParamType>) {
+    // SERVO*_MIN/MAX/TRIM are written on hardware setup as recommended PWM ranges,
+    // but they are not owned afterwards: users tune them in QGC / BlueOS parameters,
+    // and the Lua script already reads the live values. Flagging drift would block
+    // the UI over a customization we should allow.
     camera::push_owned_expectations(parameters, map);
     script::push_owned_expectations(parameters, map);
     focus::push_owned_expectations(parameters, map);

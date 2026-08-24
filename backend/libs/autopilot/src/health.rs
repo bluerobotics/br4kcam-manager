@@ -825,7 +825,7 @@ mod tests {
     use super::*;
     use crate::{
         mavlink::parameters::observe_param_value_from_sync,
-        parameters::{ActuatorsParameters, Parameter},
+        parameters::{ActuatorsParameters, ChannelFunction, Parameter},
     };
 
     /// Resets in-process autopilot health for unit tests. The process-lifetime
@@ -952,8 +952,9 @@ mod tests {
         health_reset();
         let camera_uuid = Uuid::from_u128(0xd11f_0000_0000_0001);
         let actuators = ActuatorsParameters::default();
-        let param_name = format!("SERVO{}_MIN", actuators.focus_channel as u8);
-        let expected_min = ParamType::UINT16(actuators.focus_channel_min);
+        let param_name = format!("SERVO{}_FUNCTION", actuators.focus_channel as u8);
+        let expected_function = ParamType::INT16(ChannelFunction::Script1 as i16);
+        let drifted_function = ParamType::INT16(ChannelFunction::Disabled as i16);
 
         crate::manager::owned_parameters::install_expectations_for_test(camera_uuid, &actuators);
         let mut cache = IndexMap::new();
@@ -961,7 +962,7 @@ mod tests {
             param_name.clone(),
             Parameter {
                 name: param_name.clone(),
-                value: expected_min,
+                value: expected_function,
             },
         );
         crate::manager::owned_parameters::establish_baseline_from_cache(&cache);
@@ -974,20 +975,20 @@ mod tests {
         observe_param_value_from_sync(
             &Parameter {
                 name: param_name.clone(),
-                value: ParamType::UINT16(actuators.focus_channel_min + 100),
+                value: drifted_function,
             },
             u16::MAX,
         );
         let drifts = parameter_drifts();
         assert_eq!(drifts.len(), 1);
         assert_eq!(drifts[0].name, param_name);
-        assert_eq!(drifts[0].expected, actuators.focus_channel_min as f32);
-        assert_eq!(drifts[0].actual, (actuators.focus_channel_min + 100) as f32);
+        assert_eq!(drifts[0].expected, ChannelFunction::Script1 as i16 as f32);
+        assert_eq!(drifts[0].actual, ChannelFunction::Disabled as i16 as f32);
 
         observe_param_value_from_sync(
             &Parameter {
                 name: param_name.clone(),
-                value: expected_min,
+                value: expected_function,
             },
             u16::MAX,
         );
@@ -996,10 +997,44 @@ mod tests {
         observe_param_value_from_sync(
             &Parameter {
                 name: param_name,
-                value: ParamType::UINT16(actuators.focus_channel_min + 200),
+                value: drifted_function,
             },
             0,
         );
+        assert!(parameter_drifts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn servo_pwm_range_params_are_not_owned() {
+        let _health_tests = lock_health_tests().await;
+        health_reset();
+        let camera_uuid = Uuid::from_u128(0xd11f_0000_0000_0002);
+        let actuators = ActuatorsParameters::default();
+        let channel = actuators.focus_channel as u8;
+        crate::manager::owned_parameters::install_expectations_for_test(camera_uuid, &actuators);
+
+        assert_eq!(
+            crate::manager::owned_parameters::expectations_for_param(&format!(
+                "SERVO{channel}_FUNCTION"
+            ))
+            .len(),
+            1
+        );
+
+        for suffix in ["MIN", "TRIM", "MAX"] {
+            let name = format!("SERVO{channel}_{suffix}");
+            assert!(
+                crate::manager::owned_parameters::expectations_for_param(&name).is_empty(),
+                "{name} must not be owned"
+            );
+            observe_param_value_from_sync(
+                &Parameter {
+                    name,
+                    value: ParamType::UINT16(1),
+                },
+                u16::MAX,
+            );
+        }
         assert!(parameter_drifts().is_empty());
     }
 }

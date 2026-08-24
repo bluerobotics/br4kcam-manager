@@ -171,7 +171,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_tilt_channel_min,
-        expect_owned_tilt_channel_min,
         tilt_channel_min,
         "SERVO",
         "MIN",
@@ -181,7 +180,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_tilt_channel_max,
-        expect_owned_tilt_channel_max,
         tilt_channel_max,
         "SERVO",
         "MAX",
@@ -191,7 +189,6 @@ impl Manager {
 
     generate_update_channel_param_function!(
         update_tilt_channel_trim,
-        expect_owned_tilt_channel_trim,
         tilt_channel_trim,
         "SERVO",
         "TRIM",
@@ -291,9 +288,6 @@ pub(super) fn push_owned_expectations(
     map: &mut IndexMap<String, ParamType>,
 ) {
     Manager::expect_owned_tilt_servo_function(parameters, map);
-    Manager::expect_owned_tilt_channel_min(parameters, map);
-    Manager::expect_owned_tilt_channel_trim(parameters, map);
-    Manager::expect_owned_tilt_channel_max(parameters, map);
     Manager::expect_owned_tilt_mnt_pitch_min(parameters, map);
     Manager::expect_owned_tilt_mnt_pitch_max(parameters, map);
     Manager::expect_owned_tilt_mnt_type(parameters, map);
