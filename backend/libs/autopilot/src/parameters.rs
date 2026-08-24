@@ -229,7 +229,7 @@ impl Default for ActuatorsParameters {
             // Focus - controlled by the user
             focus_channel: api::ServoChannel::SERVO10,
             focus_channel_min: 870,
-            focus_channel_trim: 1500,
+            focus_channel_trim: 918,
             focus_channel_max: 2130,
             focus_margin_gain: 1.0,
 
@@ -244,7 +244,7 @@ impl Default for ActuatorsParameters {
             // Zoom - used as Zoom output, controlled by the ZoomFocus.lua script
             zoom_channel: api::ServoChannel::SERVO11,
             zoom_channel_min: 935,
-            zoom_channel_trim: 1500,
+            zoom_channel_trim: 935,
             zoom_channel_max: 1850,
 
             // Tilt - controlled by the user
