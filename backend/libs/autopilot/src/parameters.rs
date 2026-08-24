@@ -226,14 +226,14 @@ impl Default for ActuatorsParameters {
             // Camera parameters
             camera_id: api::CameraID::CAM1,
 
-            // Focus - controlled by the user
+            // Focus - used as Focus output, controlled by the Lua script
             focus_channel: api::ServoChannel::SERVO10,
             focus_channel_min: 870,
             focus_channel_trim: 918,
             focus_channel_max: 2130,
             focus_margin_gain: 1.0,
 
-            // Script channel - used as the Zoom input coming from the GCS, controlled by the user
+            // Script channel - used as the Focus input coming from the GCS, controlled by the user
             script_channel: api::ServoChannel::SERVO12,
             script_channel_min: 870,
             script_channel_trim: 1500,
