@@ -672,6 +672,8 @@ mod tests {
         assert!(contents.contains(SCRIPT_OWNERSHIP_MARKER));
         assert!(contents.contains("find_servo_function(K_FOCUS, \"CameraFocus\""));
         assert!(contents.contains("find_servo_function(K_ZOOM, \"CameraZoom\""));
+        assert!(contents.contains("find_servo_function(K_SCRIPT, \"Script1\""));
+        assert!(contents.contains("SRV_Channels:set_output_pwm(K_SCRIPT, script_trim)"));
         assert!(contents.contains("servo function not found"));
     }
 
