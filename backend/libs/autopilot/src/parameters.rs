@@ -226,14 +226,14 @@ impl Default for ActuatorsParameters {
             // Camera parameters
             camera_id: api::CameraID::CAM1,
 
-            // Physical focus servo: ScriptN output (focus_channel, default SERVO10)
+            // Focus - controlled by the user
             focus_channel: api::ServoChannel::SERVO10,
             focus_channel_min: 870,
             focus_channel_trim: 918,
             focus_channel_max: 2130,
             focus_margin_gain: 1.0,
 
-            // User focus input: CameraFocus (script_channel, default SERVO12)
+            // Script channel - used as the Zoom input coming from the GCS, controlled by the user
             script_channel: api::ServoChannel::SERVO12,
             script_channel_min: 870,
             script_channel_trim: 1500,
@@ -241,7 +241,7 @@ impl Default for ActuatorsParameters {
             script_function: api::ScriptFunction::SCRIPT1,
             enable_focus_and_zoom_correlation: true,
 
-            // Zoom output: CameraZoom (zoom_channel, default SERVO11)
+            // Zoom - used as Zoom output, controlled by the ZoomFocus.lua script
             zoom_channel: api::ServoChannel::SERVO11,
             zoom_channel_min: 935,
             zoom_channel_trim: 935,
