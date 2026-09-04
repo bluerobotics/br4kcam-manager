@@ -2,7 +2,8 @@
   <StatusDialogShell
     :show="props.show"
     title="Hardware Setup Required"
-    @click-outside="close"
+    :persistent="false"
+    @dismiss="close"
   >
     <div class="text-center">
       <p class="text-sm text-white">
@@ -13,21 +14,20 @@
       </p>
     </div>
     <template #actions>
-      <v-spacer />
-      <v-btn
-        class="py-1 px-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-        size="small"
-        variant="elevated"
-        theme="dark"
+      <div />
+      <BlueButton
+        variant="filled"
+        density="compact"
         @click="goToSetup"
       >
         Go to setup
-      </v-btn>
+      </BlueButton>
     </template>
   </StatusDialogShell>
 </template>
 
 <script setup lang="ts">
+import { BlueButton } from '@bluerobotics/bluevue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
 
 const props = defineProps<{

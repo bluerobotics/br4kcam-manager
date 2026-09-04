@@ -28,7 +28,7 @@ export function buildDiagnosticsPayload(ctx: DiagnosticsContext): Record<string,
 
 /**
  * Fallback copy via a temporary field + execCommand.
- * stopPropagation on focusin matters inside Vuetify/dialog focus traps (BlueOS pattern).
+ * stopPropagation on focusin matters inside dialog focus traps (BlueOS pattern).
  * textarea keeps large JSON payloads intact.
  */
 function copyWithFallbackMethod(text: string): boolean {

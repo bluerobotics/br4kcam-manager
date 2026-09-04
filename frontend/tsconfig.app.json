@@ -9,7 +9,10 @@
     // "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Pins every package's Vue types to this app's copy, matching the runtime dedupe in
+      // vite.config.mts. Without it a dependency resolved through a symlink names its own Vue.
+      "vue": ["./node_modules/vue"]
     },
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   }

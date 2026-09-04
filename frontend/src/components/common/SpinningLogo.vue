@@ -1,13 +1,13 @@
 <template>
-  <v-container class="d-flex flex-column align-center justify-space-between">
-    <v-img
-      :aspect-ratio="1 / 1"
-      class="lds-dual-ring"
-      :width="size"
+  <div class="flex flex-col items-center justify-between p-4">
+    <img
+      class="lds-dual-ring aspect-square"
+      :style="{ width: size }"
       src="@/assets/common/blue-robotics-logo.svg"
-    />
-    <span class="text-subtitle-1">{{ subtitle }}</span>
-  </v-container>
+      alt=""
+    >
+    <span class="text-base">{{ subtitle }}</span>
+  </div>
 </template>
 
 <script lang="ts" setup>

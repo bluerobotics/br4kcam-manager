@@ -13,11 +13,9 @@
       </p>
       <div class="rounded-md border border-white/10 p-3">
         <div class="flex items-center gap-2 text-sm font-medium text-white">
-          <v-progress-circular
-            indeterminate
+          <BlueSpinner
             color="white"
-            size="14"
-            width="2"
+            :size="14"
             class="shrink-0"
           />
           <span>{{ viewStatusCopy.title }}</span>
@@ -55,20 +53,18 @@
         aria-live="polite"
       >
         <div class="flex items-start gap-2 text-sm font-medium text-white">
-          <v-icon
-            :icon="SEVERITY_STYLES[problem.severity].icon"
+          <BlueIcon
+            :name="SEVERITY_STYLES[problem.severity].icon"
             :color="SEVERITY_STYLES[problem.severity].color"
-            size="16"
+            :size="16"
             class="mt-0.5 shrink-0"
           />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <v-progress-circular
+              <BlueSpinner
                 v-if="problem.progress"
-                indeterminate
                 color="white"
-                size="14"
-                width="2"
+                :size="14"
                 class="shrink-0"
               />
               <span>{{ problem.title }}</span>
@@ -109,38 +105,35 @@
           "
           class="mt-3"
         >
-          <v-btn
+          <BlueButton
             v-if="problem.showUpdateLuaScript"
-            class="py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B] mr-2"
-            size="small"
-            variant="elevated"
+            density="compact"
             theme="dark"
+            class="mr-2"
             :disabled="actionInProgress != null"
             @click="runUpdateLuaScript"
           >
             Update autopilot script
-          </v-btn>
-          <v-btn
+          </BlueButton>
+          <BlueButton
             v-if="problem.showGoToSetup"
-            class="py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B] mr-2"
-            size="small"
-            variant="elevated"
+            density="compact"
             theme="dark"
+            class="mr-2"
             @click="goToSetup"
           >
             Open hardware setup
-          </v-btn>
-          <v-btn
+          </BlueButton>
+          <BlueButton
             v-if="problem.showForget"
-            class="py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B] mr-2"
-            size="small"
-            variant="elevated"
+            density="compact"
             theme="dark"
+            class="mr-2"
             :disabled="actionInProgress != null"
             @click="confirmForgetOpen = true"
           >
             Remove from setup
-          </v-btn>
+          </BlueButton>
         </div>
       </div>
     </template>
@@ -156,11 +149,9 @@
       class="text-xs mt-3 text-[#9ec9ef] flex items-center gap-2"
       aria-live="polite"
     >
-      <v-progress-circular
-        indeterminate
+      <BlueSpinner
         color="#9ec9ef"
-        size="14"
-        width="2"
+        :size="14"
       />
       {{ actionProgressLabel }}
     </p>
@@ -174,43 +165,38 @@
       @focus="($event.target as HTMLTextAreaElement).select()"
     />
     <template #actions>
-      <div
-        v-if="!viewBusyCopy"
-        class="flex items-center gap-2 min-w-0"
-      >
-        <v-btn
-          class="py-1 px-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B] shrink-0"
-          size="small"
-          variant="elevated"
+      <!-- Kept in the row even with nothing in it, so the footer's space-between still holds the
+           trailing action against the right edge. -->
+      <div class="flex items-center gap-2 min-w-0">
+        <BlueButton
+          v-if="!viewBusyCopy"
+          density="compact"
           theme="dark"
+          class="shrink-0"
           :disabled="actionInProgress != null"
           @click="copyDiagnostics"
         >
           Copy diagnostics
-        </v-btn>
+        </BlueButton>
       </div>
       <template v-if="!viewConnectionCopy">
-        <v-spacer />
-        <v-btn
+        <BlueButton
           v-if="viewAwaitingClose && !viewBusyCopy"
-          class="py-1 px-4 rounded-md bg-[#0B5087] hover:bg-[#0A3E6B]"
-          size="small"
-          variant="elevated"
+          variant="filled"
+          density="compact"
           theme="dark"
           @click="close"
         >
           Close
-        </v-btn>
-        <v-btn
+        </BlueButton>
+        <BlueButton
           v-else
-          class="py-1 px-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-          size="small"
-          variant="elevated"
+          density="compact"
           theme="dark"
           @click="minimize"
         >
           Minimize
-        </v-btn>
+        </BlueButton>
       </template>
     </template>
   </StatusDialogShell>
@@ -226,25 +212,23 @@
       This deletes the saved hardware setup for this camera. The camera itself is unchanged — you can set it up again later.
     </p>
     <template #actions>
-      <v-spacer />
-      <v-btn
-        class="py-1 px-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-        size="small"
-        variant="elevated"
+      <BlueButton
+        variant="text"
+        density="compact"
         theme="dark"
         @click="confirmForgetOpen = false"
       >
         Cancel
-      </v-btn>
-      <v-btn
-        class="py-1 px-4 rounded-md bg-[#B71C1C] hover:bg-[#D32F2F]"
-        size="small"
-        variant="elevated"
+      </BlueButton>
+      <BlueButton
+        variant="filled"
+        density="compact"
         theme="dark"
+        color="#B71C1C"
         @click="runForget"
       >
         Remove
-      </v-btn>
+      </BlueButton>
     </template>
   </StatusDialogShell>
 
@@ -258,6 +242,7 @@
 import { computed, ref, watch } from 'vue'
 
 import type { CameraConnectivity, SystemHealth } from '@/bindings/br4kcam_api'
+import { BlueButton, BlueIcon, BlueSpinner } from '@bluerobotics/bluevue'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
 import { backendClient, type ConnectionState } from '@/utils/backendClient'
@@ -347,7 +332,7 @@ const confirmForgetOpen = ref(false)
 const actionInProgress = ref<ActionKind | null>(null)
 const actionError = ref<string | null>(null)
 
-/** Freeze visible copy for the Vuetify leave animation after parent clears props. */
+/** Freeze visible copy for the dialog's close after the parent clears props. */
 const leaveSnapshot = ref<LeaveSnapshot | null>(null)
 /** Last copy while `show` was true. Hide-time props are already cleared. */
 const lastShown = ref<LeaveSnapshot | null>(null)

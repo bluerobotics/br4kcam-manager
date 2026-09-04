@@ -5,22 +5,21 @@
         v-if="message"
         class="warning-toast"
       >
-        <v-card
-          class="bg-[#363636dd] backdrop-blur-sm border border-[#ffffff22] text-white px-4 py-2 rounded-md shadow-lg"
-          theme="dark"
-        >
-          <v-icon
-            :icon="icon"
+        <div class="warning-toast__card flex items-center bg-[#363636dd] backdrop-blur-sm border border-[#ffffff22] text-white px-4 py-2 rounded-md shadow-lg">
+          <BlueIcon
+            :name="icon"
             class="mr-2"
           />
           <span class="text-sm break-words">{{ message }}</span>
-        </v-card>
+        </div>
       </div>
     </Transition>
   </Teleport>
 </template>
 
 <script setup lang="ts">
+import { BlueIcon } from '@bluerobotics/bluevue'
+
 withDefaults(
   defineProps<{
     message: string | null
@@ -43,7 +42,7 @@ withDefaults(
   pointer-events: none;
 }
 
-.warning-toast :deep(.v-card) {
+.warning-toast__card {
   pointer-events: auto;
 }
 
