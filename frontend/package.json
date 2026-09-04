@@ -13,6 +13,7 @@
     "lint": "eslint . --fix"
   },
   "dependencies": {
+    "@bluerobotics/bluevue": "^0.2.2",
     "@mdi/font": "7.4.47",
     "@tailwindcss/vite": "^4.1.11",
     "@vueuse/core": "^13.7.0",
