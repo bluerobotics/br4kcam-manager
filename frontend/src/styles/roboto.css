@@ -3,7 +3,7 @@
  *
  * Declared here rather than importing roboto-fontface's stylesheets: those pull all
  * twelve weights plus italics in two formats, and their Sass uses `@import`, which
- * Dart Sass 3.0 removes. Only the weights Vuetify's typography uses, woff2 only.
+ * Dart Sass 3.0 removes. Only the weights the interface uses, woff2 only.
  */
 @font-face {
   font-family: 'Roboto';

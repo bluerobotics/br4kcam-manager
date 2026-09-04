@@ -1,246 +1,113 @@
 <template>
-  <v-container
-    no-gutters
-    :fluid="isCockpitMode"
-    class="text-white pa-0  rounded-[8px] elevation-5 no-user-select"
+  <div
+    class="text-white p-0 pb-[10px] rounded-[8px] bluevue-elevation-5 no-user-select"
     :class="[
       theme === 'dark' ? 'bg-[#363636]' : 'bg-[#F5F5F5]',
-      isCockpitMode ? 'transparent-card mb-10 w-full max-w-full overflow-x-hidden' : 'mt-6 max-w-[800px]',
+      isCockpitMode ? 'transparent-card mx-4 mt-4 mb-14 overflow-x-hidden' : 'mt-6 mx-auto max-w-[800px]',
     ]"
   >
-    <div
-      class="flex items-center justify-between rounded-t-[8px]"
-      :class="isCockpitMode ? 'bg-[#2C2C2C88] min-w-0' : 'bg-[#15151577]'"
+    <BlueHeader
+      theme="dark"
+      leading-width="400px"
+      :background="isCockpitMode ? '#2C2C2C88' : '#15151577'"
     >
-      <div
-        class="flex items-center justify-around pl-5 border-b-[1px] border-[#ffffff88]"
-        :class="isCockpitMode ? 'min-w-0 flex-1 max-w-[400px]' : 'w-[400px]'"
-      >
-        <v-menu
-          offset-y
+      <template #leading>
+        <BlueHeaderMenu
+          :items="toolsMenuItems"
+          :icon-size="30"
+          tooltip="Camera tools"
           theme="dark"
-          class="cursor-pointer"
-        >
-          <template #activator="{ props, isActive }">
-            <v-icon
-              v-bind="props"
-              class="mt-[-2px] ml-[-5px]"
-            >
-              {{ isActive ? 'mdi-menu-open' : 'mdi-menu-close' }}
-            </v-icon>
-          </template>
-          <v-list class="pa-0 border-[1px] border-[#ffffff22] rounded-[4px]">
-            <v-list-item
-              :disabled="!backendConnected"
-              @click="updateLuaScript"
-            >
-              <v-list-item-title class="flex">
-                Update Lua script
-              </v-list-item-title>
-            </v-list-item>
-            <v-list-item
-              :disabled="!backendConnected || cameraBackedControlsDisabled"
-              @click="applyRecommendedCameraSettings"
-            >
-              <v-list-item-title class="flex">
-                Apply recommended camera settings
-              </v-list-item-title>
-            </v-list-item>
-            <v-list-item
-              :disabled="!backendConnected || cameraBackedControlsDisabled"
-              @click="rebootCamera"
-            >
-              <v-list-item-title class="flex">
-                Reboot camera
-              </v-list-item-title>
-            </v-list-item>
-            <v-divider />
-            <v-divider />
-          </v-list>
-        </v-menu>
-        <v-select
-          v-model="selectedCameraUUID"
-          :items="cameraOptions"
-          item-title="label"
-          item-value="uuid"
-          label="Camera"
-          hide-details
-          theme="dark"
-          class="bg-[#15151577] ml-3 -mb-[1px]"
-        >
-          <template #selection="{ item }">
-            <div class="flex items-center gap-1 min-w-0">
-              <v-icon
-                v-if="item.raw.missing"
-                icon="mdi-magnify-scan"
-                size="16"
-                class="shrink-0 opacity-70"
-              />
-              <span class="truncate">{{ item.title }}</span>
-            </div>
-          </template>
-          <template #item="{ props, item }">
-            <v-list-item
-              v-bind="props"
-              :prepend-icon="item.raw.missing ? 'mdi-magnify-scan' : undefined"
-              :subtitle="item.raw.missing ? 'Waiting for discovery' : item.raw.uuid"
-            />
-          </template>
-        </v-select>
-      </div>
-      <div class="flex items-center mr-4">
-        <v-tooltip
-          v-if="showBusyChip"
-          location="bottom"
-          open-delay="200"
-        >
-          <template #activator="{ props: tooltipProps }">
-            <v-progress-circular
-              v-bind="tooltipProps"
-              indeterminate
-              color="#9ec9ef"
-              size="16"
-              width="2"
-              class="mr-2 cursor-pointer health-focusable"
-              role="button"
-              tabindex="0"
-              aria-label="Open system status"
-              @click="onBusyChipOpen"
-              @keydown.enter="onBusyChipOpen"
-              @keydown.space.prevent="onBusyChipOpen"
-            />
-          </template>
-          <div class="text-sm leading-snug max-w-[280px]">
-            <div class="font-medium">
-              {{ uiLoadingMessage }}
-            </div>
-            <div class="mt-1 opacity-90">
-              Still running. Click to reopen system status.
-            </div>
-          </div>
-        </v-tooltip>
-        <v-tooltip
-          v-if="showHealthChip"
-          location="bottom"
-          open-delay="200"
-        >
-          <template #activator="{ props: tooltipProps }">
-            <v-icon
-              v-bind="tooltipProps"
-              class="mr-2 cursor-pointer health-focusable"
-              color="warning"
-              size="18"
-              icon="mdi-alert"
-              role="button"
-              tabindex="0"
-              aria-label="Open system status"
-              @click="onDegradedBannerOpen"
-              @keydown.enter="onDegradedBannerOpen"
-              @keydown.space.prevent="onDegradedBannerOpen"
-            />
-          </template>
-          <div class="text-sm leading-snug max-w-[280px]">
-            <div class="font-medium">
-              {{ degradedBannerTitle }}
-            </div>
-            <div class="mt-1 opacity-90">
-              {{ degradedBannerTooltip }}
-            </div>
-          </div>
-        </v-tooltip>
-        <v-tooltip
-          location="bottom"
-          open-delay="200"
-        >
-          <template #activator="{ props: tooltipProps }">
-            <span
-              v-bind="tooltipProps"
-              class="connection-status-wrap"
-            >
-              <v-icon
-                :icon="connectionIcon"
-                :color="connectionColor"
-                size="14"
-                class="connection-status-icon"
-                :class="{ 'connection-status-icon--spinning': connectionState === 'connecting' }"
-              />
-            </span>
-          </template>
-          <div class="connection-stats-tooltip text-sm leading-snug">
-            <div>{{ connectionStatusLine }}</div>
-            <template v-if="connectionState === 'connected' && connectionStats">
-              <div>{{ connectionStats.clients_connected }} {{ connectionStats.clients_connected === 1 ? 'client' : 'clients' }} connected</div>
-              <div class="connection-stats-bandwidth">
-                <span class="connection-stats-label">This</span>
-                <v-icon
-                  icon="mdi-arrow-up"
-                  size="12"
-                  class="mr-1"
-                />
-                {{ formatKbps(connectionStats.this_upload_kbps) }}
-                <v-icon
-                  icon="mdi-arrow-down"
-                  size="12"
-                  class="mx-1"
-                />
-                {{ formatKbps(connectionStats.this_download_kbps) }} kbps
-              </div>
-              <div class="connection-stats-bandwidth">
-                <span class="connection-stats-label">All</span>
-                <v-icon
-                  icon="mdi-arrow-up"
-                  size="12"
-                  class="mr-1"
-                />
-                {{ formatKbps(connectionStats.total_upload_kbps) }}
-                <v-icon
-                  icon="mdi-arrow-down"
-                  size="12"
-                  class="mx-1"
-                />
-                {{ formatKbps(connectionStats.total_download_kbps) }} kbps
-              </div>
-            </template>
-          </div>
-        </v-tooltip>
-        <BlueButtonGroup
-          :button-items="configButtons"
-          :theme="theme"
-          type="switch"
         />
-      </div>
-    </div>
-    <div class="health-banners-sticky">
-      <v-alert
-        v-if="showStaleBundleBanner"
-        type="info"
-        variant="flat"
-        density="compact"
-        class="mx-6 mt-4 stale-bundle-banner"
+        <BlueHeaderSelector
+          v-model="selectedCameraUUID"
+          :items="cameraSelectItems"
+          label="Camera"
+          placeholder="No camera"
+          theme="dark"
+        />
+      </template>
+      <BlueTooltip
+        v-if="showBusyChip"
+        :text="busyChipTooltip"
+        placement="bottom"
         theme="dark"
+      >
+        <BlueSpinner
+          color="#9ec9ef"
+          :size="16"
+          class="cursor-pointer health-focusable"
+          role="button"
+          tabindex="0"
+          aria-label="Open system status"
+          @click="onBusyChipOpen"
+          @keydown.enter="onBusyChipOpen"
+          @keydown.space.prevent="onBusyChipOpen"
+        />
+      </BlueTooltip>
+      <BlueTooltip
+        v-if="showHealthChip"
+        :text="healthChipTooltip"
+        placement="bottom"
+        theme="dark"
+      >
+        <BlueIcon
+          name="mdi-alert"
+          color="#FFB74D"
+          :size="18"
+          class="cursor-pointer health-focusable"
+          role="button"
+          tabindex="0"
+          aria-label="Open system status"
+          @click="onDegradedBannerOpen"
+          @keydown.enter="onDegradedBannerOpen"
+          @keydown.space.prevent="onDegradedBannerOpen"
+        />
+      </BlueTooltip>
+      <BlueTooltip
+        :text="connectionTooltip"
+        placement="bottom"
+        theme="dark"
+        class="connection-tooltip"
+      >
+        <span class="connection-status-wrap">
+          <BlueIcon
+            :name="connectionIcon"
+            :color="connectionColor"
+            :size="18"
+            class="connection-status-icon"
+            :class="{ 'connection-status-icon--spinning': connectionState === 'connecting' }"
+          />
+        </span>
+      </BlueTooltip>
+      <BlueButtonGroup
+        :button-items="configButtons"
+        :theme="theme"
+        type="switch"
+        width="156px"
+      />
+    </BlueHeader>
+    <div class="health-banners-sticky">
+      <div
+        v-if="showStaleBundleBanner"
+        class="mx-6 mt-4 rounded-[6px] border border-[#4fc3f788] bg-[#1a3a52] px-3 py-2 text-[#b3e5fc]"
       >
         <div class="flex items-center justify-between gap-3 text-sm">
           <span>
             The backend was updated while this page was open. Reload to load the matching UI.
           </span>
-          <v-btn
-            size="small"
-            variant="elevated"
+          <BlueButton
+            density="compact"
             theme="dark"
-            class="shrink-0 py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
+            class="shrink-0"
             @click="reloadPage"
           >
             Reload
-          </v-btn>
+          </BlueButton>
         </div>
-      </v-alert>
-      <v-alert
+      </div>
+      <div
         v-if="showDegradedBanner"
-        type="warning"
-        variant="flat"
-        density="compact"
-        class="mx-6 mt-4 cursor-pointer health-focusable health-degraded-banner"
-        theme="dark"
+        class="mx-6 mt-4 cursor-pointer rounded-[6px] border border-[#c9a22788] bg-[#5c4a12] px-3 py-2 text-[#ffe082] health-focusable"
         role="button"
         tabindex="0"
         @click="onDegradedBannerOpen"
@@ -250,7 +117,7 @@
         <div class="text-sm font-medium">
           {{ degradedBannerTitle }}
         </div>
-      </v-alert>
+      </div>
     </div>
     <div
       class="transition-all duration-300 ease-in-out"
@@ -276,40 +143,24 @@
         />
       </div>
       <div v-if="configMode === 'advanced'">
-        <v-tabs
+        <BlueTabs
           v-model="tab"
-          align-tabs="center"
-          class="mb-5"
-        >
-          <v-tab value="image">
-            Image
-          </v-tab>
-          <v-tab value="streams">
-            Streams
-          </v-tab>
-          <v-tab
-            value="configs"
-            :disabled="true"
-          >
-            Configs
-          </v-tab>
-        </v-tabs>
+          :tabs="advancedTabs"
+          stretch
+          theme="dark"
+        />
 
-        <v-tabs-window v-model="tab">
-          <v-tabs-window-item value="image">
-            <ImageTab
-              :selected-camera-uuid="selectedCameraUUID"
-              :disabled="cameraBackedControlsDisabled"
-              :one-push-awb="onePushAwb"
-            />
-          </v-tabs-window-item>
-          <v-tabs-window-item value="streams">
-            <StreamsTab
-              :selected-camera-uuid="selectedCameraUUID"
-              :disabled="cameraBackedControlsDisabled"
-            />
-          </v-tabs-window-item>
-        </v-tabs-window>
+        <ImageTab
+          v-if="tab === 'image'"
+          :selected-camera-uuid="selectedCameraUUID"
+          :disabled="cameraBackedControlsDisabled"
+          :one-push-awb="onePushAwb"
+        />
+        <StreamsTab
+          v-else-if="tab === 'streams'"
+          :selected-camera-uuid="selectedCameraUUID"
+          :disabled="cameraBackedControlsDisabled"
+        />
       </div>
       <HealthDiagnostics
         :system-health="systemHealth"
@@ -317,7 +168,7 @@
         :problem-titles="healthProblems.map((problem) => problem.title)"
       />
     </div>
-  </v-container>
+  </div>
   <SystemStatusDialog
     :show="showSystemStatusDialog"
     :awaiting-close="healthDialogAwaitingClose"
@@ -358,7 +209,20 @@ import type {
 } from '@/bindings/br4kcam_api'
 import HealthDiagnostics from '@/components/HealthDiagnostics.vue'
 import BasicSettings from '@/components/BasicSettings.vue'
-import BlueButtonGroup from '@/components/BlueButtonGroup.vue'
+import {
+  BlueButton,
+  BlueButtonGroup,
+  BlueHeader,
+  BlueHeaderMenu,
+  BlueHeaderSelector,
+  type BlueHeaderSelectorItem,
+  BlueIcon,
+  type BlueMenuItem,
+  BlueSpinner,
+  type BlueTab,
+  BlueTabs,
+  BlueTooltip,
+} from '@bluerobotics/bluevue'
 import ImageTab from '@/components/ImageTab.vue'
 import StreamsTab from '@/components/StreamsTab.vue'
 import SystemStatusDialog from '@/components/SystemStatusDialog.vue'
@@ -392,7 +256,12 @@ type CameraOption = {
 /** Minimum time the connecting/reconnecting dialog stays up, so it never just flashes. */
 const MIN_CONNECTION_PHASE_MS = 1000
 
-const tab = ref(null)
+const tab = ref<string | number>('image')
+const advancedTabs: BlueTab[] = [
+  { value: 'image', label: 'Image' },
+  { value: 'streams', label: 'Streams' },
+  { value: 'configs', label: 'Configs', disabled: true },
+]
 const cameras = ref<Camera[]>([])
 const selectedCameraUUID = ref<string | null>(null)
 /** Last known labels so a selected camera stays visible across discovery flaps. */
@@ -448,6 +317,24 @@ const connectionStatusLine = computed(() => {
     return `Disconnected since ${formatSince(disconnectedSince.value)}`
   }
   return 'Disconnected'
+})
+
+// A tooltip carries one string, so the bandwidth rows are held in their columns by a tab stop
+// rather than by a grid. The rule that preserves the tabs is beside .connection-tooltip below.
+const connectionTooltip = computed(() => {
+  const lines = [connectionStatusLine.value]
+  const stats = connectionStats.value
+  if (connectionState.value === 'connected' && stats) {
+    const clients = stats.clients_connected
+    lines.push(`${clients} ${clients === 1 ? 'client' : 'clients'} connected`)
+    lines.push(
+      `This\t↑ ${formatKbps(stats.this_upload_kbps)} ↓ ${formatKbps(stats.this_download_kbps)} kbps`,
+    )
+    lines.push(
+      `All\t↑ ${formatKbps(stats.total_upload_kbps)} ↓ ${formatKbps(stats.total_download_kbps)} kbps`,
+    )
+  }
+  return lines.join('\n')
 })
 
 const connectionIcon = computed(() => {
@@ -507,6 +394,17 @@ const cameraOptions = computed((): CameraOption[] => {
   }
   return options
 })
+
+// The select carries one line per option, so a camera the backend expects but discovery has not
+// listed yet says so in its own name.
+const cameraSelectItems = computed<BlueHeaderSelectorItem[]>(() =>
+  cameraOptions.value.map((option) => ({
+    name: option.label,
+    value: option.uuid,
+    icon: option.missing ? 'mdi-magnify-scan' : undefined,
+    subtitle: option.missing ? 'Waiting for discovery' : option.uuid,
+  })),
+)
 
 const selectedCameraLabel = computed(() => {
   if (!selectedCameraUUID.value) return ''
@@ -599,6 +497,12 @@ const degradedBannerTooltip = computed(() => {
     : 'System status is open.'
   return `${degradedBanner.value.body} ${hint}`
 })
+const healthChipTooltip = computed(
+  () => `${degradedBannerTitle.value} · ${degradedBannerTooltip.value}`,
+)
+const busyChipTooltip = computed(
+  () => `${uiLoadingMessage.value} · Still running. Click to reopen system status.`,
+)
 
 const desiredCameraUuid = useRouteQuery<string | null>('uuid', null)
 
@@ -876,6 +780,27 @@ const rebootCamera = (): void => {
   runCameraControl('restart', 'Failed to reboot camera')
 }
 
+const toolsMenuItems = computed<BlueMenuItem[]>(() => [
+  {
+    title: 'Update Lua script',
+    icon: 'mdi-script-text-outline',
+    disabled: !backendConnected.value,
+    action: updateLuaScript,
+  },
+  {
+    title: 'Apply recommended camera settings',
+    icon: 'mdi-auto-fix',
+    disabled: !backendConnected.value || cameraBackedControlsDisabled.value,
+    action: applyRecommendedCameraSettings,
+  },
+  {
+    title: 'Reboot camera',
+    icon: 'mdi-restart',
+    disabled: !backendConnected.value || cameraBackedControlsDisabled.value,
+    action: rebootCamera,
+  },
+])
+
 const runAutopilotControl = (action: string, errorMessage: string): void => {
   const cameraUuid = selectedCameraUUID.value
   if (!cameraUuid || uiLoading.value || uiRebooting.value) return
@@ -1080,22 +1005,6 @@ onUnmounted(() => {
   cursor: default;
 }
 
-.connection-stats-tooltip {
-  max-width: 280px;
-}
-
-.connection-stats-bandwidth {
-  display: flex;
-  align-items: center;
-}
-
-.connection-stats-label {
-  display: inline-block;
-  min-width: 2.5rem;
-  margin-right: 0.35rem;
-  opacity: 0.7;
-}
-
 .connection-status-icon {
   opacity: 0.55;
 }
@@ -1114,31 +1023,29 @@ onUnmounted(() => {
   }
 }
 
+/* pre keeps the newlines and the tab that connectionTooltip aligns its bandwidth rows on, which
+   BlueTooltip's own wrapping would otherwise collapse back into one paragraph. */
+.connection-tooltip :deep([role='tooltip']) {
+  max-width: none;
+  tab-size: 6;
+  white-space: pre;
+}
+
+/* Cockpit's own glass menu, copied rather than read: it hands widget iframes nothing but datalake
+   variables, and a vehicle-hosted widget is a different origin from Cockpit Standalone, so the
+   user's live setting is out of reach. The fill is darker than Cockpit's own #63636354, which
+   leaves the panel washed out over a bright scene. */
 .transparent-card {
   background-color: #10101085;
   backdrop-filter: blur(25px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0px 4px 4px 0px #00000033, 0px 8px 12px 6px #00000026;
+  box-shadow: 0px 4px 4px 0px #00000033, 0px 8px 12px 6px #00000016;
 }
 
 .health-banners-sticky {
   position: sticky;
   top: 0;
   z-index: 3;
-}
-
-.health-degraded-banner {
-  background-color: #5c4a12 !important;
-  color: #ffe082 !important;
-  border: 1px solid #c9a22788;
-  opacity: 1;
-}
-
-.stale-bundle-banner {
-  background-color: #1a3a52 !important;
-  color: #b3e5fc !important;
-  border: 1px solid #4fc3f788;
-  opacity: 1;
 }
 
 .health-focusable:focus-visible {

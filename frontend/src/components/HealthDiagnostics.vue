@@ -1,45 +1,44 @@
 <template>
-  <ExpansiblePanel
+  <BlueExpansiblePanel
     title="Diagnostics for support"
     :expanded="false"
     theme="dark"
+    class="px-6"
   >
-    <div class="flex flex-wrap items-center gap-2 mb-4">
-      <v-btn
-        class="py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-        size="small"
-        variant="elevated"
+    <div class="flex flex-wrap items-center gap-2">
+      <BlueButton
+        density="compact"
         theme="dark"
         @click="copyHealthDiagnostics"
       >
         Copy diagnostics
-      </v-btn>
+      </BlueButton>
     </div>
     <textarea
       v-if="copyFallbackText"
       :value="copyFallbackText"
       readonly
-      class="mb-4 w-full text-xs font-mono opacity-80"
+      class="w-full text-base font-mono opacity-80"
       rows="6"
       aria-label="Diagnostics text for manual copy"
       @focus="($event.target as HTMLTextAreaElement).select()"
     />
     <p
       v-if="!props.systemHealth"
-      class="text-sm opacity-70 mb-4"
+      class="text-base opacity-70"
     >
       Waiting for health data…
     </p>
     <details
       v-else
-      class="text-sm"
+      class="text-base"
     >
       <summary class="opacity-70 cursor-pointer mb-2">
         Raw health data
       </summary>
-      <pre class="mt-2 text-xs font-mono whitespace-pre-wrap opacity-90">{{ rawHealthText }}</pre>
+      <pre class="mt-2 text-base font-mono whitespace-pre-wrap opacity-90">{{ rawHealthText }}</pre>
     </details>
-  </ExpansiblePanel>
+  </BlueExpansiblePanel>
   <CopyFeedbackToast
     :message="copyFeedback"
     @dismiss="clearCopyFeedbackMessage"
@@ -51,7 +50,7 @@ import { computed } from 'vue'
 import type { CameraConnectivity, SystemHealth } from '@/bindings/br4kcam_api'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
 import { useCopyDiagnostics } from '@/utils/useCopyDiagnostics'
-import ExpansiblePanel from './ExpansiblePanel.vue'
+import { BlueButton, BlueExpansiblePanel } from '@bluerobotics/bluevue'
 
 const props = defineProps<{
   systemHealth: SystemHealth | null

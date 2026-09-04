@@ -1,113 +1,107 @@
 <template>
-  <v-tabs
-    v-model="selectedVideoParameters.channel"
-    align-tabs="center"
-  >
-    <v-tab
-      v-for="option in channelOptions.filter(opt => opt.value < 1)"
-      :key="option.value"
-      :value="option.value"
-      :disabled="props.disabled || processingUpdate"
-    >
-      {{ option.text }}
-    </v-tab>
-  </v-tabs>
-  <v-window
-    v-model="selectedVideoParameters.channel"
-    class="pt-5"
-  >
-    <v-window-item
-      v-for="option in channelOptions"
-      :key="option.value"
-      :value="option.value"
-    >
-      <v-select
+  <BlueTabs
+    v-model="selectedChannel"
+    :tabs="channelTabs"
+    stretch
+    theme="dark"
+  />
+  <div class="flex flex-col gap-[15px] px-6 pt-5">
+    <div class="flex flex-col gap-[15px] px-13">
+      <BlueSelect
         v-model="selectedVideoParameters.encode_profile"
         :items="encodeProfileOptions"
-        :disabled="props.disabled || processingUpdate"
+        :disabled="controlsDisabled"
         label="Encode Profile"
-        item-title="text"
-        item-value="value"
+        theme="dark"
       />
-      <v-select
+      <BlueSelect
         v-model="selectedVideoParameters.encode_type"
         :items="encodeTypeOptions"
-        :disabled="props.disabled || processingUpdate"
+        :disabled="controlsDisabled"
         label="Encode Type"
-        item-title="text"
-        item-value="value"
+        theme="dark"
       />
-      <v-select
-        v-model="selectedVideoResolution"
+      <BlueSelect
+        v-model="selectedResolutionKey"
         :items="resolutionOptions"
-        :disabled="props.disabled || processingUpdate"
+        :disabled="controlsDisabled"
         label="Resolution"
-        item-title="text"
-        item-value="value"
+        theme="dark"
       />
-      <v-select
+      <BlueSelect
         v-model="selectedVideoParameters.rc_mode"
         :items="rcModeOptions"
-        :disabled="props.disabled || processingUpdate"
+        :disabled="controlsDisabled"
         label="Bitrate Type"
-        item-title="text"
-        item-value="value"
+        theme="dark"
       />
-      <v-text-field
-        v-model.number="adjustedBitrate"
-        :disabled="props.disabled || processingUpdate"
-        label="Bitrate (kbps)"
+      <BlueInput
+        v-model="adjustedBitrate"
+        name="stream-bitrate"
+        width="240px"
+        :disabled="controlsDisabled"
+        label="Bitrate"
+        suffix="kbps"
         type="number"
-        min="1024"
-        max="40960"
-        step="1024"
+        :min="1024"
+        :max="40960"
+        :step="1024"
+        theme="dark"
       />
-      <v-text-field
-        v-model.number="selectedVideoParameters.frame_rate"
-        :disabled="props.disabled || processingUpdate"
+      <BlueInput
+        v-model="frameRate"
+        name="stream-frame-rate"
+        width="240px"
+        :disabled="controlsDisabled"
         label="Frame Rate"
         type="number"
-        min="1"
+        :min="1"
         :max="selectedVideoParameters.max_framerate"
+        theme="dark"
       />
-      <v-text-field
-        v-model.number="selectedVideoParameters.gop"
-        :disabled="props.disabled || processingUpdate"
+      <BlueInput
+        v-model="gop"
+        name="stream-gop"
+        width="240px"
+        :disabled="controlsDisabled"
         label="I-Frame Interval (GOP)"
         type="number"
-        min="1"
-        max="100"
+        :min="1"
+        :max="100"
+        theme="dark"
       />
+    </div>
 
-      <v-divider class="ma-5" />
+    <div class="my-3 border-t border-[#ffffff14]" />
 
-      <div class="ma-2 text-right">
-        <v-btn
-          variant="tonal"
-          :disabled="props.disabled || processingUpdate"
-          @click="updateVideoParameters"
-        >
-          <v-progress-circular
-            v-if="processingUpdate"
-            indeterminate
-            color="white"
-            size="20"
-            class="me-2"
-          />
-          {{
-            processingUpdate
-              ? "Processing..."
-              : needs_restart
-                ? "Apply and Restart"
-                : "Apply"
-          }}
-        </v-btn>
-      </div>
-    </v-window-item>
-  </v-window>
+    <div class="flex justify-end px-13">
+      <BlueButton
+        variant="filled"
+        theme="dark"
+        :loading="processingUpdate"
+        :disabled="controlsDisabled"
+        @click="updateVideoParameters"
+      >
+        {{
+          processingUpdate
+            ? "Processing..."
+            : needs_restart
+              ? "Apply and Restart"
+              : "Apply"
+        }}
+      </BlueButton>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
+import {
+  BlueButton,
+  BlueInput,
+  BlueSelect,
+  BlueTabs,
+  type BlueTab,
+} from '@bluerobotics/bluevue'
 import { backendClient } from '@/utils/backendClient'
 import { rebootCamera } from '@/utils/rebootCamera'
 import { useCameraState } from '@/utils/useCameraState'
@@ -133,14 +127,24 @@ const channelOptions = enumToOptions(VideoChannelValue)
 const encodeProfileOptions = enumToOptions(VideoEncodingProfileValue)
 const encodeTypeOptions = enumToOptions(VideoEncodeTypeValue)
 const rcModeOptions = enumToOptions(VideoRcModeValue)
-const resolutionOptions = computed(() => {
-  return downloadedVideoParameters.value.pixel_list?.map(
-    (res: VideoResolutionValue) => ({
-      text: `${res.width}x${res.height}`,
-      value: res,
-    })
-  )
-})
+
+const controlsDisabled = computed(() => props.disabled || processingUpdate.value)
+
+const channelTabs = computed<BlueTab[]>(() =>
+  channelOptions
+    .filter((option) => option.value < 1)
+    .map((option) => ({
+      value: option.value,
+      label: option.name,
+      disabled: controlsDisabled.value,
+    })),
+)
+
+const resolutionOptions = computed(() =>
+  downloadedVideoParameters.value.pixel_list?.map((res: VideoResolutionValue) => ({
+    name: `${res.width}x${res.height}`,
+  })) ?? [],
+)
 
 const selectedVideoParameters = ref<VideoParameterSettings>({
   channel: VideoChannelValue.MainStream,
@@ -278,12 +282,52 @@ const applyCameraStateEvent = (body: unknown) => {
 
 useCameraState(toRef(props, 'selectedCameraUuid'), applyCameraStateEvent)
 
+const selectedChannel = computed({
+  get: (): number => selectedVideoParameters.value.channel ?? VideoChannelValue.MainStream,
+  set: (value: string | number) => {
+    selectedVideoParameters.value.channel = Number(value) as VideoChannelValue
+  },
+})
+
+// The select matches its options by value, so the resolution travels as the same "WxH" string it
+// is labelled with. As an object it would never match: every hydrate builds a fresh one.
+const selectedResolutionKey = computed({
+  get: (): string | null => {
+    const resolution = selectedVideoResolution.value
+    return resolution ? `${resolution.width}x${resolution.height}` : null
+  },
+  set: (key: string | number | null) => {
+    const [width, height] = String(key ?? '').split('x').map(Number)
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return
+    selectedVideoResolution.value = { width, height } as VideoResolutionValue
+  },
+})
+
 const adjustedBitrate = computed({
-  get: () => selectedVideoParameters.value.bitrate,
-  set: (newValue: number) => {
-    const rounded = Math.round(newValue / 1024) * 1024
-    selectedVideoParameters.value.bitrate = rounded
+  get: (): number | null => selectedVideoParameters.value.bitrate ?? null,
+  set: (newValue: string | number | null) => {
+    const value = Number(newValue)
+    if (!Number.isFinite(value)) return
+    selectedVideoParameters.value.bitrate = Math.round(value / 1024) * 1024
   }
+})
+
+const frameRate = computed({
+  get: (): number | null => selectedVideoParameters.value.frame_rate ?? null,
+  set: (newValue: string | number | null) => {
+    const value = Number(newValue)
+    if (!Number.isFinite(value)) return
+    selectedVideoParameters.value.frame_rate = value
+  },
+})
+
+const gop = computed({
+  get: (): number | null => selectedVideoParameters.value.gop ?? null,
+  set: (newValue: string | number | null) => {
+    const value = Number(newValue)
+    if (!Number.isFinite(value)) return
+    selectedVideoParameters.value.gop = value
+  },
 })
 
 const updateVideoParameters = () => {

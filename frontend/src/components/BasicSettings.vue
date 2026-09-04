@@ -1,31 +1,30 @@
 <template>
-  <div class="px-6 py-4">
-    <v-alert
+  <div class="px-6 pt-4 pb-1">
+    <div
       v-if="isConfigured === false"
-      type="warning"
-      variant="tonal"
-      class="mb-4"
-      theme="dark"
+      class="mb-4 rounded-[6px] border border-[#FB8C0055] bg-[#FB8C0022] p-3 text-[#FFB74D]"
     >
-      <div class="text-sm font-medium">
+      <div class="flex items-center gap-2 text-sm font-medium">
+        <BlueIcon
+          name="mdi-alert"
+          :size="18"
+        />
         Hardware setup required
       </div>
       <div class="text-sm mt-1 opacity-90">
         Complete the Hardware setup section below to enable full camera controls.
       </div>
       <div class="mt-3">
-        <v-btn
-          class="py-1 px-3 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-          size="small"
-          variant="elevated"
+        <BlueButton
+          density="compact"
           theme="dark"
           @click="scrollToHardwareSetup"
         >
           Go to setup
-        </v-btn>
+        </BlueButton>
       </div>
-    </v-alert>
-    <ExpansiblePanel
+    </div>
+    <BlueExpansiblePanel
       title="Image"
       :expanded="panelsOpen.image"
       theme="dark"
@@ -44,32 +43,22 @@
         :button-items="whiteBalanceModeButtonItems"
         theme="dark"
         type="switch"
-        class="mt-6"
       />
-      <div 
-        class="d-flex flex-col align-end mt-6"
-      >
-        <v-btn
+      <div class="flex flex-col items-end">
+        <BlueButton
           :disabled="cameraControlsDisabled || wbBusy"
-          class="py-1 px-3 ml-4 max-w-full rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-          size="small"
-          variant="elevated"
+          :loading="wbBusy"
+          density="regular"
           theme="dark"
+          class="max-w-full"
           @click="doWhiteBalance"
         >
-          <v-progress-circular
-            v-if="wbBusy"
-            indeterminate
-            color="white"
-            size="20"
-            class="me-2"
-          />
           {{ onePushLabel }}
-        </v-btn>
+        </BlueButton>
       </div>
       <div
         v-if="baseParams.auto_awb === BaseAutoWhiteBalanceModeValue.Manual"
-        class="d-flex flex-column align-end mt-6"
+        class="flex flex-col items-end gap-[15px]"
       >
         <BlueSlider
           v-model="baseParams.awb_red"
@@ -80,8 +69,9 @@
           :max="255"
           :step="1"
           :keyboard-step-multiplier-limit="2"
-          width="400px"
           theme="dark"
+          value-weight="regular"
+          label-width="130px"
           @update:model-value="updateBaseParameter('awb_red', $event as number)"
         />
         <BlueSlider
@@ -93,14 +83,14 @@
           :max="255"
           :step="1"
           :keyboard-step-multiplier-limit="2"
-          width="400px"
           theme="dark"
-          class="mt-6"
+          value-weight="regular"
+          label-width="130px"
           @update:model-value="updateBaseParameter('awb_blue', $event as number)"
         />
       </div>
-    </ExpansiblePanel>
-    <ExpansiblePanel
+    </BlueExpansiblePanel>
+    <BlueExpansiblePanel
       title="Actuators"
       :expanded="panelsOpen.actuators"
       theme="dark"
@@ -121,8 +111,9 @@
         :unscale-fn="unscaleFocus"
         label-min="Close"
         label-max="Far"
-        width="400px"
         theme="dark"
+        value-weight="regular"
+        label-width="130px"
         @update:model-value="updateActuatorsState('focus', $event as number)"
       />
       <BlueSlider
@@ -140,9 +131,9 @@
         :keyboard-step-multiplier-limit="1"
         label-min="1x"
         label-max="2x"
-        width="400px"
         theme="dark"
-        class="mt-6"
+        value-weight="regular"
+        label-width="130px"
         @update:model-value="updateActuatorsState('zoom', $event as number)"
       />
       <BlueSlider
@@ -159,14 +150,15 @@
         :unscale-fn="unscaleTilt"
         :label-min="`${currentFocusAndZoomParams.tilt_mnt_pitch_min}` || ''"
         :label-max="`${currentFocusAndZoomParams.tilt_mnt_pitch_max}` || ''"
-        width="400px"
         theme="dark"
-        class="mt-6"
+        value-weight="regular"
+        label-width="130px"
         @update:model-value="updateActuatorsState('tilt', $event as number)"
       />
-      <ExpansiblePanel
-        class="d-flex flex-col align-end mt-4"
+      <BlueExpansiblePanel
         title="more"
+        header-align="end"
+        body-class="pt-4 pb-8"
         :expanded="panelsOpen.actuatorsMore"
         theme="dark"
         @update:expanded="panelsOpen.actuatorsMore = $event"
@@ -190,13 +182,15 @@
             :step="1"
             width="400px"
             theme="dark"
+            value-weight="regular"
+            label-width="130px"
             class="mt-6"
             @update:model-value="onFocusOffsetChange($event ?? 0)"
           /> -->
         </div>
-      </ExpansiblePanel>
-    </ExpansiblePanel>
-    <ExpansiblePanel
+      </BlueExpansiblePanel>
+    </BlueExpansiblePanel>
+    <BlueExpansiblePanel
       title="Video"
       :expanded="panelsOpen.video"
       theme="dark"
@@ -216,96 +210,36 @@
         label="Bitrate"
         :items="bitrateOptions || [{ name: 'No bitrates available', value: null }]"
         theme="dark"
-        class="mt-6"
         @update:model-value="(value: any) => handleVideoChanges('bitrate', value)"
       >
         <template #insetElement>
-          <div class="flex items-center justify-end w-full">
-            <v-menu
-              offset-y
-              transition="scale-transition"
-              theme="dark"
-            >
-              <template #activator="{ props: activatorProps }">
-                <v-icon
-                  v-bind="activatorProps"
-                  class="ml-2 cursor-pointer text-[18px] mr-6"
-                >
-                  mdi-information-outline
-                </v-icon>
-              </template>
-              <v-card class="w-[550px] text-white pa-0 rounded-lg border-[1px] border-[#ffffff33]">
-                <div class="text-[sm] font-bold bg-[#4C4C4C22] text-center pa-1 pt-2">
-                  H.264 Bitrate Options
-                </div>
-                <v-divider class="mb-2" />
-                <div class="pr-0 pb-0">
-                  <table class="border-collapse w-full text-[16px]">
-                    <thead>
-                      <tr>
-                        <th class="border-b border-gray-600 pb-1 text-left pl-4 text-[14px]">
-                          Resolution
-                        </th>
-                        <th class="border-b border-gray-600 pb-1 text-center text-[14px]">
-                          High
-                        </th>
-                        <th class="border-b border-gray-600 pb-1 text-center text-[14px]">
-                          Medium
-                        </th>
-                        <th class="border-b border-gray-600 pb-1 text-center text-[14px]">
-                          Low
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="row in h264BitrateTable"
-                        :key="row.resolution"
-                        class="border-t-[1px] border-[#ffffff11]"
-                      >
-                        <td class="pl-4 py-1 text-[16px] pt-2">
-                          {{ row.resolution }}<br>
-                          <span class="opacity-70 text-[14px] align-center">Disk usage</span>
-                        </td>
-                        <td class="mt-1 text-center">
-                          {{ row.high.bitrate }} kbps<br>
-                          <span class="opacity-70">{{ row.high.storage }} GB/h</span>
-                        </td>
-                        <td class="mt-1 text-center">
-                          {{ row.medium.bitrate }} kbps<br>
-                          <span class="opacity-70">{{ row.medium.storage }} GB/h</span>
-                        </td>
-                        <td class="mt-1 text-center">
-                          {{ row.low.bitrate }} kbps<br>
-                          <span class="opacity-70">{{ row.low.storage }} GB/h</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </v-card>
-            </v-menu>
-          </div>
+          <BlueButton
+            variant="icon"
+            icon="mdi-information-outline"
+            tooltip="H.264 bitrate options"
+            density="compact"
+            theme="dark"
+            class="shrink-0 ml-auto mr-2"
+            @click="bitrateInfoOpen = true"
+          />
         </template>
       </BlueSelect>
       <div
         v-if="hasUnsavedVideoChanges"
-        class="flex justify-end mt-8 mb-[-20px]"
+        class="flex justify-end mb-[-20px]"
       >
-        <v-btn
+        <BlueButton
           :disabled="isConfigured !== true || cameraControlsDisabled"
-          class="py-1 px-3 rounded-md bg-[#0B5087] hover:bg-[#0A3E6B]"
-          :class="{ 'opacity-50 pointer-events-none': !hasUnsavedVideoChanges }"
-          size="small"
-          variant="elevated"
+          variant="filled"
+          density="compact"
           theme="dark"
           @click="saveVideoDataAndRestart"
         >
-          SAVE AND RESTART CAMERA
-        </v-btn>
+          Save and restart camera
+        </BlueButton>
       </div>
-    </ExpansiblePanel>
-    <ExpansiblePanel
+    </BlueExpansiblePanel>
+    <BlueExpansiblePanel
       ref="hardwareSetupPanel"
       title="Hardware setup"
       :expanded="panelsOpen.hardware"
@@ -316,7 +250,7 @@
         <p class="mb-3">
           Assign Navigator PWM output channels to your camera functions below. The recommended setup is:
         </p>
-        <ul class="list-disc pl-5 mb-4 text-sm">
+        <ul class="list-disc pl-5 mb-4 text-base">
           <li><b>Focus</b>: Connect the camera's Focus cable to Navigator's <b>PWM Channel 10</b></li>
           <li><b>Zoom</b>: Connect the camera's Zoom cable to Navigator's <b>PWM Channel 11</b></li>
           <li><b>Script</b>: Navigator's <b>PWM Channel 12</b> is used as an <i>input</i> used by the internal Lua script that enables Focus/Zoom correlation (no physical cable connects here)</li>
@@ -330,43 +264,40 @@
       <!-- Default Simple Setup -->
       <div
         v-if="!showAdvancedHardware"
-        class="mb-4 p-3"
+        class="px-3 pt-3"
       >
         <p
           v-if="hardwareSetupDisabledReason"
-          class="text-sm opacity-80 mb-3 text-end"
+          class="text-sm opacity-80 mb-3 text-right"
         >
           {{ hardwareSetupDisabledReason }}
         </p>
-        <div class="d-flex flex-row ga-3 mt-5 justify-end">
-          <v-btn
+        <div class="flex flex-row gap-3 mt-5 justify-end">
+          <BlueButton
             :disabled="hardwareSetupControlsDisabled"
-            class="py-1 px-3 ml-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-            size="small"
-            variant="elevated"
+            density="compact"
             theme="dark"
             @click="showAdvancedHardware = true"
           >
             Advanced setup
-          </v-btn>
-          <v-btn
-            class="py-1 px-3 ml-4 rounded-md bg-[#0B5087] hover:bg-[#0A3E6B]"
-            size="small"
-            variant="elevated"
+          </BlueButton>
+          <BlueButton
+            variant="filled"
+            density="compact"
             :disabled="hardwareSetupControlsDisabled"
             :loading="props.loading"
             theme="dark"
             @click="resetToRecommendedDefaults"
           >
             Apply default hardware setup
-          </v-btn>
+          </BlueButton>
         </div>
       </div>
 
       <!-- Advanced Setup -->
       <div v-else>
         <!-- Focus Group -->
-        <ExpansiblePanel
+        <BlueExpansiblePanel
           title="Focus"
           expanded
           theme="dark"
@@ -380,53 +311,56 @@
             theme="dark"
             @update:model-value="handleChannelChanges('focus_channel', $event)"
           />
-          <div class="d-flex flex-row ga-3 mt-5">
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.focus_channel_min"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Min (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.focus_channel_trim"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Trim (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.focus_channel_max"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Max (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
+          <div class="flex flex-row gap-3">
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Min (µs)
+              <BlueInput
+                v-model="focusChannelMin"
+                name="focus-channel-min"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Trim (µs)
+              <BlueInput
+                v-model="focusChannelTrim"
+                name="focus-channel-trim"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Max (µs)
+              <BlueInput
+                v-model="focusChannelMax"
+                name="focus-channel-max"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
           </div>
-          <v-text-field
-            v-model.number="intendedFocusAndZoomParams.focus_margin_gain"
-            :disabled="hardwareSetupControlsDisabled"
-            type="number"
-            label="Focus Margin Gain"
-            density="compact"
-            hide-details
-            theme="dark"
-            variant="outlined"
-            class="mt-5"
-          />
-        </ExpansiblePanel>
+          <label class="flex min-w-0 flex-col gap-1 text-xs opacity-70">
+            Focus Margin Gain
+            <BlueInput
+              v-model="focusMarginGain"
+              name="focus-margin-gain"
+              :disabled="hardwareSetupControlsDisabled"
+              type="number"
+              width="100%"
+              theme="dark"
+            />
+          </label>
+        </BlueExpansiblePanel>
 
         <!-- Zoom Group -->
-        <ExpansiblePanel
+        <BlueExpansiblePanel
           title="Zoom"
           expanded
           theme="dark"
@@ -440,42 +374,45 @@
             theme="dark"
             @update:model-value="handleChannelChanges('zoom_channel', $event)"
           />
-          <div class="d-flex flex-row ga-3 mt-5">
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.zoom_channel_min"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Min (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.zoom_channel_trim"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Trim (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.zoom_channel_max"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Max (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
+          <div class="flex flex-row gap-3">
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Min (µs)
+              <BlueInput
+                v-model="zoomChannelMin"
+                name="zoom-channel-min"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Trim (µs)
+              <BlueInput
+                v-model="zoomChannelTrim"
+                name="zoom-channel-trim"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Max (µs)
+              <BlueInput
+                v-model="zoomChannelMax"
+                name="zoom-channel-max"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
           </div>
-        </ExpansiblePanel>
+        </BlueExpansiblePanel>
 
         <!-- Script Group -->
-        <ExpansiblePanel
+        <BlueExpansiblePanel
           title="Script"
           expanded
           theme="dark"
@@ -489,47 +426,48 @@
             theme="dark"
             @update:model-value="handleChannelChanges('script_channel', $event)"
           />
-          <div class="d-flex flex-row ga-3 mt-5">
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.script_channel_min"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Min (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.script_channel_trim"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Trim (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.script_channel_max"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Max (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
+          <div class="flex flex-row gap-3">
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Min (µs)
+              <BlueInput
+                v-model="scriptChannelMin"
+                name="script-channel-min"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Trim (µs)
+              <BlueInput
+                v-model="scriptChannelTrim"
+                name="script-channel-trim"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Max (µs)
+              <BlueInput
+                v-model="scriptChannelMax"
+                name="script-channel-max"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
           </div>
-          <div class="d-flex flex-column ga-4 mt-4">
+          <div class="flex flex-col gap-[15px]">
             <BlueSelect
               v-model="intendedFocusAndZoomParams.script_function"
               :disabled="hardwareSetupControlsDisabled"
               label="Script Function"
               :items="scriptFunctionOptions"
               theme="dark"
-              item-title="name"
-              item-value="value"
             />
             <BlueSelect
               v-model="intendedFocusAndZoomParams.camera_id"
@@ -537,8 +475,6 @@
               label="Camera ID"
               :items="cameraIdOptions"
               theme="dark"
-              item-title="name"
-              item-value="value"
             />
             <BlueSwitch
               v-model="intendedFocusAndZoomParams.enable_focus_and_zoom_correlation"
@@ -548,10 +484,10 @@
               theme="dark"
             />
           </div>
-        </ExpansiblePanel>
+        </BlueExpansiblePanel>
 
         <!-- Tilt Group -->
-        <ExpansiblePanel
+        <BlueExpansiblePanel
           title="Tilt"
           expanded
           theme="dark"
@@ -565,61 +501,66 @@
             theme="dark"
             @update:model-value="handleChannelChanges('tilt_channel', $event)"
           />
-          <div class="d-flex flex-row ga-3 mt-5">
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.tilt_channel_min"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Min (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.tilt_channel_trim"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Trim (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.tilt_channel_max"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Max (µs)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
+          <div class="flex flex-row gap-3">
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Min (µs)
+              <BlueInput
+                v-model="tiltChannelMin"
+                name="tilt-channel-min"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Trim (µs)
+              <BlueInput
+                v-model="tiltChannelTrim"
+                name="tilt-channel-trim"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Max (µs)
+              <BlueInput
+                v-model="tiltChannelMax"
+                name="tilt-channel-max"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
           </div>
-          <div class="d-flex flex-row ga-3 pt-4">
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.tilt_mnt_pitch_min"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Pitch Min (°)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
-            <v-text-field
-              v-model.number="intendedFocusAndZoomParams.tilt_mnt_pitch_max"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Pitch Max (°)"
-              type="number"
-              density="compact"
-              hide-details
-              theme="dark"
-              variant="outlined"
-            />
+          <div class="flex flex-row gap-3">
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Pitch Min (°)
+              <BlueInput
+                v-model="tiltMntPitchMin"
+                name="tilt-mnt-pitch-min"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
+            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+              Pitch Max (°)
+              <BlueInput
+                v-model="tiltMntPitchMax"
+                name="tilt-mnt-pitch-max"
+                :disabled="hardwareSetupControlsDisabled"
+                type="number"
+                width="100%"
+                theme="dark"
+              />
+            </label>
           </div>
-          <div class="d-flex flex-column ga-4 mt-4">
+          <div class="flex flex-col gap-[15px]">
             <BlueSwitch
               v-model="intendedFocusAndZoomParams.tilt_channel_reversed"
               :disabled="hardwareSetupControlsDisabled"
@@ -633,48 +574,93 @@
               label="Mount Type"
               :items="mountTypeOptions"
               theme="dark"
-              item-title="name"
-              item-value="value"
             />
           </div>
-        </ExpansiblePanel>
+        </BlueExpansiblePanel>
 
         <!-- Action Buttons -->
-        <div class="d-flex flex-col align-end ga-3 mt-5">
+        <div class="flex flex-col items-end gap-3 mt-5">
           <p
             v-if="hardwareSetupDisabledReason"
             class="text-sm opacity-80 mb-0"
           >
             {{ hardwareSetupDisabledReason }}
           </p>
-          <div class="d-flex flex-row ga-3 justify-end">
-          <v-btn
-            :disabled="hardwareSetupControlsDisabled"
-            class="py-1 px-3 ml-4 rounded-md bg-[#414141] hover:bg-[#0A3E6B]"
-            size="small"
-            variant="elevated"
-            theme="dark"
-            @click="showAdvancedHardware = false"
-          >
-            Back to simple
-          </v-btn>
-          <v-btn
-            class="py-1 px-3 ml-4 rounded-md bg-[#0B5087] hover:bg-[#0A3E6B]"
-            size="small"
-            variant="elevated"
-            :disabled="hasChannelErrors || hardwareSetupControlsDisabled"
-            :loading="props.loading"
-            theme="dark"
-            @click="saveHardwareSetup"
-          >
-            Apply custom hardware setup
-          </v-btn>
+          <div class="flex flex-row gap-3 justify-end">
+            <BlueButton
+              :disabled="hardwareSetupControlsDisabled"
+              density="compact"
+              theme="dark"
+              @click="showAdvancedHardware = false"
+            >
+              Back to simple
+            </BlueButton>
+            <BlueButton
+              variant="filled"
+              density="compact"
+              :disabled="hasChannelErrors || hardwareSetupControlsDisabled"
+              :loading="props.loading"
+              theme="dark"
+              @click="saveHardwareSetup"
+            >
+              Apply custom hardware setup
+            </BlueButton>
           </div>
         </div>
       </div>
-    </ExpansiblePanel>
+    </BlueExpansiblePanel>
   </div>
-  
+
+  <BlueDialog
+    v-model="bitrateInfoOpen"
+    title="H.264 Bitrate Options"
+    width="550px"
+    body-class="px-0 pb-2"
+  >
+    <table class="w-full border-collapse text-[16px]">
+      <thead>
+        <tr>
+          <th class="border-b border-gray-600 pb-1 pl-4 text-left text-[14px]">
+            Resolution
+          </th>
+          <th class="border-b border-gray-600 pb-1 text-center text-[14px]">
+            High
+          </th>
+          <th class="border-b border-gray-600 pb-1 text-center text-[14px]">
+            Medium
+          </th>
+          <th class="border-b border-gray-600 pb-1 pr-4 text-center text-[14px]">
+            Low
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          v-for="row in h264BitrateTable"
+          :key="row.resolution"
+          class="border-t-[1px] border-[#ffffff11]"
+        >
+          <td class="py-1 pl-4 pt-2 text-[16px]">
+            {{ row.resolution }}<br>
+            <span class="text-[14px] opacity-70">Disk usage</span>
+          </td>
+          <td class="text-center">
+            {{ row.high.bitrate }} kbps<br>
+            <span class="opacity-70">{{ row.high.storage }} GB/h</span>
+          </td>
+          <td class="text-center">
+            {{ row.medium.bitrate }} kbps<br>
+            <span class="opacity-70">{{ row.medium.storage }} GB/h</span>
+          </td>
+          <td class="pr-4 text-center">
+            {{ row.low.bitrate }} kbps<br>
+            <span class="opacity-70">{{ row.low.storage }} GB/h</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </BlueDialog>
+
   <WelcomeDialog
     :show="showWelcomeOverlay"
     @close="showWelcomeDialog = false"
@@ -684,11 +670,17 @@
 
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from 'vue'
-import BlueButtonGroup from './BlueButtonGroup.vue'
-import BlueSlider from './BlueSlider.vue'
-import BlueSwitch from './BlueSwitch.vue'
-import ExpansiblePanel from './ExpansiblePanel.vue'
-import BlueSelect from './BlueSelect.vue'
+import {
+  BlueButton,
+  BlueButtonGroup,
+  BlueDialog,
+  BlueExpansiblePanel,
+  BlueIcon,
+  BlueInput,
+  BlueSelect,
+  BlueSlider,
+  BlueSwitch,
+} from '@bluerobotics/bluevue'
 import { type BaseParameterSetting, type VideoParameterSettings, type VideoResolutionValue, BaseAutoWhiteBalanceModeValue, BaseAutoWhiteBalanceSceneValue, type AdvancedParameterSetting, type CameraControl } from '@/bindings/br4kcam'
 import { backendClient } from '@/utils/backendClient'
 import {
@@ -940,7 +932,7 @@ const showWelcomeOverlay = computed(
     && showWelcomeDialog.value
     && autopilotState.value !== 'syncing',
 )
-const hardwareSetupPanel = ref<InstanceType<typeof ExpansiblePanel> | null>(null)
+const hardwareSetupPanel = ref<InstanceType<typeof BlueExpansiblePanel> | null>(null)
 
 const scrollToHardwareSetup = (): void => {
   panelsOpen.value = { ...panelsOpen.value, hardware: true }
@@ -952,6 +944,7 @@ const onWelcomeGoToSetup = (): void => {
   showWelcomeDialog.value = false
 }
 const showAdvancedHardware = ref(false)
+const bitrateInfoOpen = ref(false)
 const intendedFocusAndZoomParams = ref<ActuatorsParametersConfig>({
   camera_id: null,
   focus_channel: null,
@@ -978,6 +971,38 @@ const intendedFocusAndZoomParams = ref<ActuatorsParametersConfig>({
   tilt_mnt_pitch_min: null,
   tilt_mnt_pitch_max: null,
 })
+
+type NumericParamKey = {
+  [K in keyof ActuatorsParametersConfig]: ActuatorsParametersConfig[K] extends number | null ? K : never
+}[keyof ActuatorsParametersConfig]
+
+// BlueInput types its emit as widely as its own field allows, so a numeric setting reaches the
+// config through a narrowing bridge rather than fifteen inline handlers.
+const numberField = (key: NumericParamKey) =>
+  computed({
+    get: (): number | null => intendedFocusAndZoomParams.value[key],
+    set: (value: string | number | null) => {
+      const parsed = Number(value)
+      intendedFocusAndZoomParams.value[key] = Number.isFinite(parsed) ? parsed : null
+    },
+  })
+
+const focusChannelMin = numberField('focus_channel_min')
+const focusChannelTrim = numberField('focus_channel_trim')
+const focusChannelMax = numberField('focus_channel_max')
+const focusMarginGain = numberField('focus_margin_gain')
+const zoomChannelMin = numberField('zoom_channel_min')
+const zoomChannelTrim = numberField('zoom_channel_trim')
+const zoomChannelMax = numberField('zoom_channel_max')
+const scriptChannelMin = numberField('script_channel_min')
+const scriptChannelTrim = numberField('script_channel_trim')
+const scriptChannelMax = numberField('script_channel_max')
+const tiltChannelMin = numberField('tilt_channel_min')
+const tiltChannelTrim = numberField('tilt_channel_trim')
+const tiltChannelMax = numberField('tilt_channel_max')
+const tiltMntPitchMin = numberField('tilt_mnt_pitch_min')
+const tiltMntPitchMax = numberField('tilt_mnt_pitch_max')
+
 const defaultFocusAndZoomParams = ref<ActuatorsParametersConfig>({
   camera_id: null,
   focus_channel: null,
@@ -1440,7 +1465,7 @@ const updateActuatorsConfig = (param: keyof ActuatorsParametersConfig, value: an
     })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const sendQueuedActuatorState = (param: ActuatorKey, allowWhileDisabled = false): void => {
   if (!props.selectedCameraUuid) return
   if (props.disabled && !allowWhileDisabled) return

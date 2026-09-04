@@ -1,7 +1,7 @@
 // Plugins
+import tailwindcss from '@tailwindcss/vite'
 import Components from 'unplugin-vue-components/vite'
 import Vue from '@vitejs/plugin-vue'
-import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 // Utilities
 import { defineConfig } from 'vite'
@@ -11,16 +11,8 @@ import { fileURLToPath, URL } from 'node:url'
 export default defineConfig({
   base: './',
   plugins: [
-    Vue({
-      template: { transformAssetUrls },
-    }),
-    // https://github.com/vuetifyjs/vuetify-loader/tree/master/packages/vite-plugin#readme
-    Vuetify({
-      autoImport: true,
-      styles: {
-        configFile: 'src/styles/settings.scss',
-      },
-    }),
+    Vue(),
+    tailwindcss(),
     Components(),
   ],
   define: { 'process.env': {} },
@@ -28,6 +20,9 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+    // A linked package brings its own copy of Vue, and two Vue runtimes in one page break every
+    // injection a component library relies on. The app's copy is the only one.
+    dedupe: ['vue'],
     extensions: [
       '.js',
       '.json',
@@ -40,12 +35,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-  },
-  css: {
-    preprocessorOptions: {
-      sass: {
-        api: 'modern-compiler',
-      },
+    cors: {
+      origin: '*',
     },
   },
 })

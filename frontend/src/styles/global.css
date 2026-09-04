@@ -1,6 +1,31 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "@bluerobotics/bluevue/bluevue.css";
+
+/* Tailwind does not look inside node_modules on its own, and without this the utility classes
+   BlueVue's components are written in are never generated. */
+@source "../../node_modules/@bluerobotics/bluevue/dist";
+
+/* BlueSlider gives its track half the row, which leaves it too short to aim at once a panel or a
+   Cockpit widget narrows. A basis of whichever is larger lets the track run to the right edge on a
+   narrow row and keep the half on a wide one, and it still shrinks past the floor rather than
+   overflowing when even that will not fit. 140px is the library's own minimum. */
+:has(> [name='slider-track']) {
+  flex-basis: max(50%, 320px);
+  min-width: 140px;
+}
+
+/* Frosted glass on the status dialogs. Set here rather than left to BlueVue's .bluevue-panel:
+   minification drops the unprefixed backdrop-filter from the published stylesheet, and Chromium
+   no longer honours the -webkit- spelling that survives it. */
+.glass-dialog .bluevue-panel {
+  background-color: #1e1e1e8f;
+  backdrop-filter: blur(20px);
+}
+
+.glass-dialog::backdrop {
+  background: #000000a6;
+  backdrop-filter: blur(4px);
+}
 
 @layer base {
   :root {

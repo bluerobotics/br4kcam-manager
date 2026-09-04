@@ -1,35 +1,40 @@
 <template>
-  <v-dialog
+  <BlueDialog
     :model-value="props.show"
     :persistent="props.persistent"
     :width="props.width"
-    @update:model-value="(value) => { if (!value) emit('dismiss') }"
-    @click:outside="emit('click-outside')"
+    class="glass-dialog"
+    header-class="px-5 py-10"
+    footer-class="px-5 py-[14px]"
+    body-class="px-6 pt-4 pb-[17px] w-full bg-black/[0.169] bluevue-inset-1"
+    @update:model-value="(value: boolean) => { if (!value) emit('dismiss') }"
   >
-    <div class="status-card flex flex-col items-center pt-[10px] rounded-lg max-h-[90vh]">
+    <template
+      v-if="props.logo"
+      #header
+    >
       <img
-        v-if="props.logo"
         src="../../public/assets/logo.svg"
-        class="w-[120px] h-[120px] mb-1 shrink-0"
+        class="mx-auto h-auto w-[188px] shrink-0"
         alt=""
       >
-      <v-card-title class="text-h6 text-center py-2 text-white shrink-0">
-        {{ props.title }}
-      </v-card-title>
-      <v-card-text class="px-6 pb-3 w-full flex-1 min-h-0 overflow-y-auto">
-        <slot />
-      </v-card-text>
-      <v-card-actions
-        v-if="$slots.actions"
-        class="px-4 pb-4 w-full shrink-0"
-      >
-        <slot name="actions" />
-      </v-card-actions>
-    </div>
-  </v-dialog>
+    </template>
+    <h2 class="mb-4 text-center text-lg text-white">
+      {{ props.title }}
+    </h2>
+    <slot />
+    <template
+      v-if="$slots.actions"
+      #footer
+    >
+      <slot name="actions" />
+    </template>
+  </BlueDialog>
 </template>
 
 <script setup lang="ts">
+import { BlueDialog } from '@bluerobotics/bluevue'
+
 // Defaults must go through withDefaults: Vue casts an absent boolean prop to false,
 // so an omitted `logo` or `persistent` would otherwise read as an explicit false.
 const props = withDefaults(
@@ -50,17 +55,6 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'click-outside'): void
   (e: 'dismiss'): void
 }>()
 </script>
-
-<style scoped>
-.status-card {
-  background-color: #10101065;
-  backdrop-filter: blur(5px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0px 4px 4px 0px #00000033, 0px 8px 12px 6px #00000026;
-  width: 100%;
-}
-</style>
