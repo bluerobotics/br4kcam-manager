@@ -1,6 +1,18 @@
 use axum::response::IntoResponse;
 use serde::Serialize;
 
+/// Display name reported in `register_service`; BlueOS derives the `/extensionv2/<name>/` path from it.
+pub const EXTENSION_DISPLAY_NAME: &str = "4K Cam Manager";
+
+/// Matches BlueOS `re.sub(r"[^a-z0-9]", "", name.lower())` in the extensions helper.
+pub fn extension_v2_route_name(display_name: &str) -> String {
+    display_name
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        .collect()
+}
+
 #[derive(Debug, Serialize)]
 /// https://blueos.cloud/docs/latest/development/extensions/#web-interface-http-server
 pub struct ServerMetadata {
@@ -33,7 +45,7 @@ pub struct Extras {
 impl Default for ServerMetadata {
     fn default() -> Self {
         Self {
-            name: "4K Cam Manager",
+            name: EXTENSION_DISPLAY_NAME,
             description: "The official management interface for 4K Cam",
             icon: "mdi-camera-outline",
             company: "BlueRobotics",
@@ -59,4 +71,18 @@ pub async fn server_metadata() -> impl IntoResponse {
     let json = serde_json::to_string_pretty(&server_metadata).unwrap();
 
     json.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_v2_route_name_matches_blueos_sanitization() {
+        assert_eq!(
+            extension_v2_route_name(EXTENSION_DISPLAY_NAME),
+            "4kcammanager"
+        );
+        assert_eq!(extension_v2_route_name("RadCam Manager"), "radcammanager");
+    }
 }
