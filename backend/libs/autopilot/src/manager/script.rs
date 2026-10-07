@@ -31,6 +31,10 @@ const SCRIPT_CONTENT_OWNERSHIP_MARKERS: &[&str] = &[
 
 const SCRIPT_HEALTH_STALE_THRESHOLD: u8 = 3;
 
+// Independent of `CARGO_PKG_VERSION`. Bump only when the template or generation logic
+// changes. Health compares script bodies and ignores the `--- Version:` header line.
+pub const LUA_SCRIPT_VERSION: &str = "1.0.0";
+
 impl Manager {
     #[instrument(level = "debug")]
     pub async fn export_script(camera_uuid: &Uuid, overwrite: bool) -> Result<bool> {
@@ -60,7 +64,7 @@ impl Manager {
 
         if let Ok(existing_contents) = tokio::fs::read_to_string(path_obj).await
             && !overwrite
-            && existing_contents == contents
+            && lua_scripts_equivalent(&existing_contents, &contents)
         {
             return Ok(false);
         }
@@ -83,8 +87,7 @@ impl Manager {
 
     /// Whether the script installed on the autopilot is the one this install expects.
     ///
-    /// Compares file contents rather than asking the autopilot, so it also catches a
-    /// script left behind by an older manager version: the template stamps the version.
+    /// Compares generated script bodies (ignoring the stamped `--- Version:` line).
     ///
     /// ponytail: one script file backs every configured camera, so with more than one
     /// configured this passes as soon as any of them matches. Upgrade path is one file
@@ -112,8 +115,15 @@ impl Manager {
 
         remove_conflicting_owned_scripts(std::path::Path::new(&path)).await;
 
-        match tokio::fs::read_to_string(&path).await {
-            Ok(installed) if expected.contains(&installed) => LuaScriptStatus::Ok,
+        let installed_normalized = tokio::fs::read_to_string(&path).await;
+        match installed_normalized {
+            Ok(installed)
+                if expected
+                    .iter()
+                    .any(|candidate| lua_scripts_equivalent(&installed, candidate)) =>
+            {
+                LuaScriptStatus::Ok
+            }
             Ok(_) => LuaScriptStatus::Outdated,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => LuaScriptStatus::Missing,
             Err(error) => {
@@ -577,6 +587,18 @@ impl ScriptHealthTracker {
     }
 }
 
+fn normalize_lua_script_for_compare(script: &str) -> String {
+    script
+        .lines()
+        .filter(|line| !line.starts_with("--- Version:"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
+    normalize_lua_script_for_compare(installed) == normalize_lua_script_for_compare(expected)
+}
+
 fn generate_lua_script(config: &CameraActuators) -> Result<String> {
     let mut context = tera::Context::new();
 
@@ -593,7 +615,7 @@ fn generate_lua_script(config: &CameraActuators) -> Result<String> {
     context.insert("script_function_name", &format!("Script{script_n}"));
     context.insert("closest_points", &config.closest_points.to_lua());
     context.insert("furthest_points", &config.furthest_points.to_lua());
-    context.insert("version", env!("CARGO_PKG_VERSION"));
+    context.insert("version", LUA_SCRIPT_VERSION);
 
     let template = include_str!("br4kcam.lua.template");
 
@@ -658,12 +680,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lua_scripts_equivalent_ignores_version_header() {
+        let expected = generate_lua_script(&CameraActuators::default()).unwrap();
+        let installed = expected.replace(
+            &format!("--- Version: {LUA_SCRIPT_VERSION}"),
+            "--- Version: 0.3.2",
+        );
+        assert!(lua_scripts_equivalent(&installed, &expected));
+    }
+
+    #[test]
     fn test_script_generation() {
         let contents = generate_lua_script(&CameraActuators::default()).unwrap();
-        dbg!(&contents);
 
         validate_lua(&contents).unwrap();
 
+        assert!(contents.contains(&format!("--- Version: {LUA_SCRIPT_VERSION}")));
         assert!(contents.contains("warn_missing_servo_function"));
         assert!(contents.contains(SCRIPT_OWNERSHIP_MARKER));
         assert!(contents.contains("find_servo_function(K_FOCUS, \"CameraFocus\""));
