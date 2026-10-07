@@ -6,12 +6,14 @@ use mcm_client::Cameras;
 use serde::Serialize;
 use serde_json::json;
 
+use super::blueos;
+
 // Cockpit extras versions are independent of the extension version. Bump a
 // constant only when that extras payload actually changes. Tracking
 // CARGO_PKG_VERSION makes every extension release look like a new widget,
 // action, or joystick suggestion in Cockpit.
 const WIDGET_VERSION: &str = "1.0.0";
-const ACTION_VERSION: &str = "1.0.0";
+const ACTION_VERSION: &str = "1.0.1";
 const JOYSTICK_SUGGESTION_VERSION: &str = "1.0.0";
 
 #[derive(Debug, Serialize, Clone)]
@@ -183,7 +185,13 @@ fn widgets(cameras: &Cameras) -> Vec<CockpitIframeWidget> {
         .collect()
 }
 
+fn cockpit_camera_control_url() -> String {
+    let route_name = blueos::extension_v2_route_name(blueos::EXTENSION_DISPLAY_NAME);
+    format!("http://{{{{ vehicle-address }}}}/extensionv2/{route_name}/v1/camera/control")
+}
+
 fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
+    let camera_control_url = cockpit_camera_control_url();
     let mut actions = cameras
         .iter()
         .flat_map(|(camera_uuid, camera)| {
@@ -194,9 +202,7 @@ fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
                 name: name.clone(),
                 action_type: CockpitActionType::HttpRequest(HttpRequestAction {
                     name,
-                    url:
-                        "http://{{ vehicle-address }}/extensionv2/br4kcammanager/v1/camera/control"
-                            .to_string(),
+                    url: camera_control_url.clone(),
                     method: HttpRequestMethod::POST,
                     headers: json!({
                         "Content-Type": "application/json",
@@ -229,8 +235,7 @@ fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
             name: "4K Cam One-Push White Balance (All)".to_string(),
             action_type: CockpitActionType::HttpRequest(HttpRequestAction {
                 name: "4K Cam One-Push White Balance (All)".to_string(),
-                url: "http://{{ vehicle-address }}/extensionv2/br4kcammanager/v1/camera/control"
-                    .to_string(),
+                url: camera_control_url,
                 method: HttpRequestMethod::POST,
                 headers: json!({
                     "Content-Type": "application/json",
@@ -557,6 +562,12 @@ mod tests {
         assert!(!actions.is_empty());
         for action in &actions {
             assert_eq!(action.version, ACTION_VERSION);
+            let CockpitActionType::HttpRequest(http_request) = &action.action_type;
+            assert!(
+                http_request
+                    .url
+                    .contains("/extensionv2/4kcammanager/v1/camera/control")
+            );
         }
 
         let suggestions = joystick_suggestions(&cameras);
