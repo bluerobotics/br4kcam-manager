@@ -181,6 +181,8 @@
     :connection-state="dialogConnectionState"
     :ever-connected="connectionPhaseEverConnected"
     :busy="busyDialogState"
+    @dismiss-result="onSetupResultDismiss"
+    @force-reapply="onSetupForceReapply"
     @close="onHealthDialogClose"
     @minimize="onSystemStatusDialogMinimize"
     @forgotten="onHealthCameraForgotten"
@@ -207,6 +209,8 @@ import type {
   CameraStateEvent,
   CameraUiState,
   OnePushAwbStatus,
+  SetupProgress,
+  SetupResult,
 } from '@/bindings/br4kcam_api'
 import HealthDiagnostics from '@/components/HealthDiagnostics.vue'
 import BasicSettings from '@/components/BasicSettings.vue'
@@ -465,12 +469,23 @@ const healthView = computed(() =>
   healthDialogView(healthDialog.value, healthFlags.value.degraded),
 )
 const showHealthDialog = computed(() => healthView.value.showDialog)
-/** A deliberate long-running action shows in the dialog until the user minimizes it. */
-const busyDialogState = computed(() =>
-  uiLoading.value && !busyMinimized.value
-    ? { message: uiLoadingMessage.value, rebooting: uiRebooting.value }
-    : null,
-)
+/**
+ * A deliberate long-running action shows in the dialog until the user minimizes it.
+ * Its result replaces it and stays until the user dismisses it.
+ */
+const busyDialogState = computed(() => {
+  if (uiSetupResult.value) {
+    return { message: uiLoadingMessage.value, rebooting: false, result: uiSetupResult.value }
+  }
+  return uiLoading.value && !busyMinimized.value
+    ? {
+        message: uiLoadingMessage.value,
+        rebooting: uiRebooting.value,
+        startedAt: busyStartedAt.value,
+        progress: uiSetupProgress.value,
+      }
+    : null
+})
 const showSystemStatusDialog = computed(
   () => connectionPhase.value != null || busyDialogState.value != null || showHealthDialog.value,
 )
@@ -528,6 +543,10 @@ const cameraControls = ref<InstanceType<typeof BasicSettings> | null>(null)
 const uiLoading = ref(false)
 const uiLoadingMessage = ref('Applying settings…')
 const uiRebooting = ref(false)
+const uiSetupProgress = ref<SetupProgress | null>(null)
+const uiSetupResult = ref<SetupResult | null>(null)
+/** Local time the current loading episode began, for the dialog's elapsed timer. */
+const busyStartedAt = ref<number | null>(null)
 /** Local, per-episode: a new action always shows the dialog again. */
 const busyMinimized = ref(false)
 const onePushAwb = ref<OnePushAwbStatus | null>(null)
@@ -587,6 +606,8 @@ const applyCameraUi = (ui: CameraUiState) => {
     uiLoadingMessage.value = ui.loading_message
   }
   uiRebooting.value = ui.rebooting
+  uiSetupProgress.value = ui.setup_progress ?? null
+  uiSetupResult.value = ui.setup_result ?? null
   onePushAwb.value = ui.one_push_awb ?? null
   errorDialogMessage.value = ui.error_dialog ?? null
   warningToastIcon.value = WARNING_TOAST_ICON
@@ -625,6 +646,8 @@ watch(selectedCameraUUID, (uuid, previousUuid) => {
   if (!uuid) {
     uiLoading.value = false
     uiRebooting.value = false
+    uiSetupProgress.value = null
+    uiSetupResult.value = null
     onePushAwb.value = null
     errorDialogMessage.value = null
     warningToastMessage.value = null
@@ -644,10 +667,13 @@ watch(selectedCameraUUID, (uuid, previousUuid) => {
       loading: false,
       loading_message: undefined,
       rebooting: false,
+      setup_progress: undefined,
     })
   } else {
     uiLoading.value = false
     uiRebooting.value = false
+    uiSetupProgress.value = null
+    uiSetupResult.value = null
     onePushAwb.value = null
     errorDialogMessage.value = null
     warningToastMessage.value = null
@@ -726,6 +752,20 @@ const onHealthDialogClose = (): void => {
 
 const onDegradedBannerOpen = (): void => {
   healthDialog.value = reopenHealthDialog(healthDialog.value)
+}
+
+/** Collapse Hardware Setup and open the day-to-day panels once a successful result is read. */
+const onSetupResultDismiss = (): void => {
+  if (!selectedCameraUUID.value) return
+  backendClient.dismissUi(selectedCameraUUID.value, 'setup_result')
+  if (!uiSetupResult.value?.error) {
+    cameraControls.value?.applyPanelLayout(true)
+  }
+  uiSetupResult.value = null
+}
+
+const onSetupForceReapply = (): void => {
+  cameraControls.value?.resetToRecommendedDefaults(true)
 }
 
 const onBusyChipOpen = (): void => {
@@ -942,7 +982,9 @@ watch(
 )
 
 watch(uiLoading, (loading) => {
-  if (!loading) {
+  if (loading) {
+    busyStartedAt.value = Date.now()
+  } else {
     busyMinimized.value = false
   }
 })
