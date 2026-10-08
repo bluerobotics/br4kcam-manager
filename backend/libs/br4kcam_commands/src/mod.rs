@@ -594,4 +594,21 @@ mod tests {
 
         assert_eq!(expected_action, serialized_action);
     }
+
+    #[test]
+    fn set_image_adjustment_ex_all_does_not_require_camera_uuid() {
+        let payload = json!({
+            "action": "setImageAdjustmentExAll",
+            "json": { "onceAWB": 1 }
+        })
+        .to_string();
+
+        let camera_control = deserialize::<CameraControl>(&payload).unwrap();
+
+        assert!(camera_control.camera_uuid.is_nil());
+        assert!(matches!(
+            camera_control.action,
+            crate::Action::SetImageAdjustmentExAll(_)
+        ));
+    }
 }
