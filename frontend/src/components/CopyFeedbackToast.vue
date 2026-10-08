@@ -1,9 +1,13 @@
 <template>
   <Teleport to="body">
-    <Transition name="copy-toast-fade">
+    <Transition
+      name="copy-toast-fade"
+      @enter="(element) => (element as HTMLElement).showPopover()"
+    >
       <div
         v-if="message"
         class="copy-feedback-toast"
+        popover="manual"
         role="status"
         aria-live="polite"
         @click="emit('dismiss')"
@@ -28,6 +32,14 @@ const emit = defineEmits<{
 
 <style scoped>
 .copy-feedback-toast {
+  /* Popover top layer: stacks above a modal dialog's blurred ::backdrop. Reset UA popover styles. */
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
   position: fixed;
   bottom: 1.25rem;
   left: 50%;
