@@ -239,7 +239,14 @@
         </BlueButton>
       </div>
     </BlueExpansiblePanel>
-    <div ref="hardwareSetupPanel">
+    <div
+      ref="hardwareSetupPanel"
+      class="relative"
+    >
+      <div
+        ref="hardwareSetupHighlight"
+        class="absolute inset-0 pointer-events-none opacity-0 z-10 bg-white/20 rounded-lg blur-[1px]"
+      />
     <BlueExpansiblePanel
       title="Hardware setup"
       :expanded="panelsOpen.hardware"
@@ -934,11 +941,16 @@ const showWelcomeOverlay = computed(
     && autopilotState.value !== 'syncing',
 )
 const hardwareSetupPanel = ref<HTMLElement | null>(null)
+const hardwareSetupHighlight = ref<HTMLElement | null>(null)
 
 const scrollToHardwareSetup = async (): Promise<void> => {
   panelsOpen.value = { ...panelsOpen.value, hardware: true }
   await nextTick()
   hardwareSetupPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  hardwareSetupHighlight.value?.animate(
+    [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }],
+    { duration: 1800 },
+  )
 }
 
 const onWelcomeGoToSetup = (): void => {
