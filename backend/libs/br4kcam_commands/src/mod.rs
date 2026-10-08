@@ -205,7 +205,7 @@ async fn apply_set_image_adjustment_ex_all(
         };
 
         if let Err(error) = control_inner(Json(camera_control)).await {
-            let message = format!("{}: {error:?}", camera.hostname);
+            let message = format!("{}: {error:#}", camera.hostname);
             error!(message);
             errors.push(message);
         }
@@ -214,7 +214,14 @@ async fn apply_set_image_adjustment_ex_all(
     match errors.len() {
         0 => Ok(serde_json::Value::Null),
         1 => Err(anyhow::anyhow!("{}", errors[0])),
-        _ => Err(anyhow::anyhow!("Multiple errors happened: {errors:?}")),
+        _ => Err(anyhow::anyhow!(
+            "Multiple errors happened:\n{}",
+            errors
+                .iter()
+                .map(|message| format!("- {message}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )),
     }
 }
 
@@ -279,7 +286,7 @@ pub async fn apply_recommended_camera_settings(camera_uuid: Uuid) -> Result<serd
         for camera_control in channel_configs {
             if let Err(error) = control_inner(Json(camera_control)).await {
                 let message = format!(
-                    "Failed applying recommended camera settings for VideoParameterSettings: {error:?}"
+                    "Failed applying recommended camera settings for VideoParameterSettings: {error:#}"
                 );
                 error!(message);
                 errors.push(message);
@@ -302,7 +309,7 @@ pub async fn apply_recommended_camera_settings(camera_uuid: Uuid) -> Result<serd
 
         if let Err(error) = control_inner(Json(camera_control)).await {
             let message = format!(
-                "Failed applying recommended camera settings for BaseParameterSetting: {error:?}"
+                "Failed applying recommended camera settings for BaseParameterSetting: {error:#}"
             );
             error!(message);
             errors.push(message);
@@ -324,7 +331,7 @@ pub async fn apply_recommended_camera_settings(camera_uuid: Uuid) -> Result<serd
 
         if let Err(error) = control_inner(Json(camera_control)).await {
             let message = format!(
-                "Failed applying recommended camera settings for AdvancedParameterSetting: {error:?}"
+                "Failed applying recommended camera settings for AdvancedParameterSetting: {error:#}"
             );
             error!(message);
             errors.push(message);
@@ -334,7 +341,14 @@ pub async fn apply_recommended_camera_settings(camera_uuid: Uuid) -> Result<serd
     match errors.len() {
         0 => Ok(serde_json::Value::Null),
         1 => Err(anyhow::anyhow!("{}", errors[0])),
-        _ => Err(anyhow::anyhow!("Multiple errors happened: {errors:?}")),
+        _ => Err(anyhow::anyhow!(
+            "Multiple errors happened:\n{}",
+            errors
+                .iter()
+                .map(|message| format!("- {message}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )),
     }
 }
 
