@@ -231,6 +231,38 @@ pub struct CameraUiState {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub onvif_auth_error: Option<String>,
+    /// Step the default hardware setup is on. `None` when it is not running.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub setup_progress: Option<SetupProgress>,
+    /// Outcome of the last default hardware setup, kept until a client dismisses it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub setup_result: Option<SetupResult>,
+}
+
+/// Step-by-step progress of the default hardware setup.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
+pub struct SetupProgress {
+    /// One-based current step.
+    pub step: u32,
+    /// Number of steps in the run.
+    pub total: u32,
+    /// What the current step does.
+    pub label: String,
+}
+
+/// Outcome of a default hardware setup run.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
+pub struct SetupResult {
+    /// Settings that differed from the defaults and were changed.
+    pub changes: Vec<String>,
+    /// True when the run was a forced full re-apply.
+    pub forced: bool,
+    /// Failure detail. `None` on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
 }
 
 /// Phase of a backend-owned one-push white balance run.
@@ -359,6 +391,8 @@ pub enum UiDismissField {
     ErrorDialog,
     /// The transient warning toast.
     WarningToast,
+    /// The default hardware setup result.
+    SetupResult,
 }
 
 /// Answer to a [`WsRequest`], correlated by `id`.
