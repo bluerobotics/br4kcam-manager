@@ -239,8 +239,8 @@
         </BlueButton>
       </div>
     </BlueExpansiblePanel>
+    <div ref="hardwareSetupPanel">
     <BlueExpansiblePanel
-      ref="hardwareSetupPanel"
       title="Hardware setup"
       :expanded="panelsOpen.hardware"
       theme="dark"
@@ -609,6 +609,7 @@
         </div>
       </div>
     </BlueExpansiblePanel>
+    </div>
   </div>
 
   <BlueDialog
@@ -669,7 +670,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
 import {
   BlueButton,
   BlueButtonGroup,
@@ -932,11 +933,12 @@ const showWelcomeOverlay = computed(
     && showWelcomeDialog.value
     && autopilotState.value !== 'syncing',
 )
-const hardwareSetupPanel = ref<InstanceType<typeof BlueExpansiblePanel> | null>(null)
+const hardwareSetupPanel = ref<HTMLElement | null>(null)
 
-const scrollToHardwareSetup = (): void => {
+const scrollToHardwareSetup = async (): Promise<void> => {
   panelsOpen.value = { ...panelsOpen.value, hardware: true }
-  hardwareSetupPanel.value?.$el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  await nextTick()
+  hardwareSetupPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 const onWelcomeGoToSetup = (): void => {
