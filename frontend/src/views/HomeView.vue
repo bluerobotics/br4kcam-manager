@@ -191,6 +191,8 @@
   />
   <ErrorDialog
     :message="errorDialogMessage"
+    :system-health="systemHealth"
+    :camera-connectivity="cameraConnectivity"
     @close="dismissErrorDialog"
   />
   <WarningToast
