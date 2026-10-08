@@ -73,6 +73,119 @@ pub async fn configured_cameras() -> Vec<Uuid> {
     }
 }
 
+/// What [`reset_actuators_config`] did.
+pub struct ResetOutcome {
+    /// Actuators configuration after the reset.
+    pub config: api::ActuatorsConfig,
+    /// Settings that differed from the defaults, as `name: old → new`.
+    pub changes: Vec<String>,
+}
+
+/// Parameters of `current` that differ from `defaults`, as `name: old → new`.
+fn changed_parameters(
+    current: &api::ActuatorsParametersConfig,
+    defaults: &api::ActuatorsParametersConfig,
+) -> Result<Vec<String>> {
+    let current = serde_json::to_value(current)?;
+    let defaults = serde_json::to_value(defaults)?;
+    let (Some(current), Some(defaults)) = (current.as_object(), defaults.as_object()) else {
+        return Ok(Vec::new());
+    };
+
+    Ok(defaults
+        .iter()
+        .filter(|(name, default)| current.get(*name) != Some(*default))
+        .map(|(name, default)| {
+            let old = current.get(name).unwrap_or(&serde_json::Value::Null);
+            format!(
+                "{name}: {} → {}",
+                old.to_string().trim_matches('"'),
+                default.to_string().trim_matches('"')
+            )
+        })
+        .collect())
+}
+
+/// Apply the default hardware setup, reporting `progress(step, total, label)`.
+///
+/// Without `force`, a camera whose saved setup already matches the defaults is left
+/// untouched, and otherwise only the differing parameters are written. With `force`
+/// (or when the camera has no saved setup yet) every default is written again.
+#[instrument(level = "debug", skip(progress))]
+pub async fn reset_actuators_config(
+    camera_uuid: Uuid,
+    force: bool,
+    progress: &(dyn Fn(u32, u32, &str) + Send + Sync),
+) -> Result<ResetOutcome> {
+    const STEPS: u32 = 4;
+    let default_config = api::ActuatorsConfig::from(&CameraActuators::default());
+
+    progress(1, STEPS, "Comparing the current setup with the defaults");
+    let current = MANAGER
+        .get()
+        .context("Not available")?
+        .read()
+        .await
+        .settings
+        .actuators
+        .get(&camera_uuid)
+        .map(api::ActuatorsConfig::from);
+    let changes = match (&current, &default_config.parameters) {
+        (Some(current), Some(defaults)) => {
+            changed_parameters(current.parameters.as_ref().unwrap_or(defaults), defaults)?
+        }
+        _ => vec!["Initial hardware setup".to_string()],
+    };
+    if !force
+        && changes.is_empty()
+        && let Some(config) = current
+    {
+        return Ok(ResetOutcome { config, changes });
+    }
+
+    let reapply_everything = force || current.is_none();
+    manager::reboot_outside_apply_with(
+        Box::pin(async {
+            progress(
+                2,
+                STEPS,
+                "Applying camera, focus, zoom, tilt and script parameters",
+            );
+            if reapply_everything {
+                manager::Manager::reset_config(&camera_uuid).await
+            } else {
+                manager::Manager::update_config(&camera_uuid, &default_config, false).await
+            }
+        }),
+        Box::pin(async {
+            progress(
+                3,
+                STEPS,
+                "Rebooting the autopilot, this is the longest step",
+            );
+            crate::mavlink::component()?.reboot_autopilot().await
+        }),
+        Box::pin(async {
+            progress(4, STEPS, "Enabling the script and saving the setup");
+            manager::Manager::finalize_config_after_reboot(
+                &camera_uuid,
+                default_config.parameters.as_ref(),
+            )
+            .await
+        }),
+    )
+    .await?;
+
+    let manager = MANAGER.get().context("Not available")?.read().await;
+    let config = manager
+        .settings
+        .actuators
+        .get(&camera_uuid)
+        .context(crate::ACTUATORS_NOT_CONFIGURED)?
+        .into();
+    Ok(ResetOutcome { config, changes })
+}
+
 /// Shared entry point for REST and WebSocket autopilot control requests.
 #[instrument(level = "debug")]
 pub async fn handle_control(actuators_control: api::ActuatorsControl) -> Result<serde_json::Value> {
@@ -280,30 +393,16 @@ pub(crate) async fn control_inner(
 
             serde_json::to_value(config)?
         }
-        Action::ResetActuatorsConfig => {
-            let camera_uuid = actuators_control.camera_uuid;
-            let default_params = api::ActuatorsConfig::from(&CameraActuators::default());
-            manager::reboot_outside_apply(
-                Box::pin(async { manager::Manager::reset_config(&camera_uuid).await }),
-                Box::pin(async {
-                    manager::Manager::finalize_config_after_reboot(
-                        &camera_uuid,
-                        default_params.parameters.as_ref(),
-                    )
-                    .await
-                }),
-            )
+        Action::ResetActuatorsConfig | Action::ForceResetActuatorsConfig => {
+            let force = matches!(actuators_control.action, Action::ForceResetActuatorsConfig);
+            let outcome = Box::pin(reset_actuators_config(
+                actuators_control.camera_uuid,
+                force,
+                &|_, _, _| {},
+            ))
             .await?;
 
-            let manager = MANAGER.get().context("Not available")?.read().await;
-            let config: &api::ActuatorsConfig = &manager
-                .settings
-                .actuators
-                .get(&camera_uuid)
-                .context(crate::ACTUATORS_NOT_CONFIGURED)?
-                .into();
-
-            serde_json::to_value(config)?
+            serde_json::to_value(outcome.config)?
         }
         Action::ForgetActuatorsConfig => {
             let camera_uuid = actuators_control.camera_uuid;
@@ -354,7 +453,24 @@ pub(crate) async fn control_inner(
 mod tests {
     use anyhow::anyhow;
 
-    use super::{ACTUATORS_NOT_CONFIGURED, error_indicates_actuators_not_configured};
+    use super::{
+        ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters,
+        error_indicates_actuators_not_configured,
+    };
+
+    #[test]
+    fn changed_parameters_lists_only_differences() {
+        let defaults = api::ActuatorsConfig::from(&CameraActuators::default())
+            .parameters
+            .unwrap();
+        assert!(changed_parameters(&defaults, &defaults).unwrap().is_empty());
+
+        let mut current = defaults.clone();
+        current.focus_channel = Some(api::ServoChannel::SERVO1);
+        let changes = changed_parameters(&current, &defaults).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].starts_with("focus_channel: SERVO1 → "));
+    }
 
     #[test]
     fn actuators_not_configured_message_is_stable() {

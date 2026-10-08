@@ -29,6 +29,8 @@ pub enum Action {
     SetActuatorsConfig(ActuatorsConfig),
     #[serde(rename = "resetActuatorsConfig")]
     ResetActuatorsConfig,
+    #[serde(rename = "forceResetActuatorsConfig")]
+    ForceResetActuatorsConfig,
     #[serde(rename = "forgetActuatorsConfig")]
     ForgetActuatorsConfig,
 }
