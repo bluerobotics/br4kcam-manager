@@ -246,7 +246,7 @@ pub fn add_interest() {
 /// stream when the last one is gone.
 #[instrument(level = "debug")]
 pub fn remove_interest() {
-    match INTEREST.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |interests| {
+    match INTEREST.try_update(Ordering::SeqCst, Ordering::SeqCst, |interests| {
         interests.checked_sub(1)
     }) {
         Ok(1) => {
