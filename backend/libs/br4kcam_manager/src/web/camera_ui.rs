@@ -8,7 +8,9 @@ use std::{
 };
 
 use autopilot::api::{Action as AutopilotAction, ActuatorsConfig};
-use br4kcam_api::{CameraConnectivity, CameraUiState, OnePushAwbStatus, UiDismissField};
+use br4kcam_api::{
+    CameraConnectivity, CameraUiState, OnePushAwbStatus, SetupProgress, SetupResult, UiDismissField,
+};
 use br4kcam_commands::Action as CameraAction;
 use once_cell::sync::OnceCell;
 use tokio::task::JoinHandle;
@@ -127,6 +129,7 @@ pub(crate) fn dismiss(camera_uuid: Uuid, field: UiDismissField) {
         match field {
             UiDismissField::ErrorDialog => entry.state.error_dialog = None,
             UiDismissField::WarningToast => entry.state.warning_toast = None,
+            UiDismissField::SetupResult => entry.state.setup_result = None,
         }
         entry.state.clone()
     };
@@ -160,6 +163,18 @@ pub(crate) fn fail_camera_action(camera_uuid: Uuid, action: &CameraAction, error
 /// Handle a failed autopilot control: dialog for deliberate actions, toast otherwise.
 #[instrument(level = "debug", skip(action))]
 pub(crate) fn fail_autopilot_action(camera_uuid: Uuid, action: &AutopilotAction, error: &str) {
+    if is_default_setup_action(action) {
+        end_default_setup(
+            camera_uuid,
+            SetupResult {
+                changes: Vec::new(),
+                forced: matches!(action, AutopilotAction::ForceResetActuatorsConfig),
+                error: Some(error.to_string()),
+            },
+        );
+        return;
+    }
+
     if loading_message_for_autopilot_action(action).is_some() {
         end_loading(camera_uuid);
         set_error(
@@ -210,9 +225,47 @@ pub(crate) fn start_autopilot_action(camera_uuid: Uuid, action: &AutopilotAction
 /// Finish UI lifecycle for a successful autopilot action.
 #[instrument(level = "debug", skip(action))]
 pub(crate) fn finish_autopilot_action(camera_uuid: Uuid, action: &AutopilotAction) {
-    if loading_message_for_autopilot_action(action).is_some() {
+    // The default setup ends through `end_default_setup`, which also publishes its result.
+    if loading_message_for_autopilot_action(action).is_some() && !is_default_setup_action(action) {
         end_loading(camera_uuid);
     }
+}
+
+/// Report the default hardware setup step. Each step also restarts the loading timeout,
+/// so a long run (autopilot reboot) is not cut short while it keeps making progress.
+#[instrument(level = "debug")]
+pub(crate) fn set_setup_progress(camera_uuid: Uuid, step: u32, total: u32, label: &str) {
+    let state = {
+        let mut lock = ui().lock().unwrap();
+        let entry = lock.entry(camera_uuid).or_insert_with(new_entry);
+        entry.state.setup_progress = Some(SetupProgress {
+            step,
+            total,
+            label: label.to_string(),
+        });
+        arm_loading_timeout(entry, camera_uuid);
+        entry.state.clone()
+    };
+    camera_state::emit_ui(camera_uuid, state);
+}
+
+/// End the default hardware setup loading overlay and publish its `result`.
+#[instrument(level = "debug")]
+pub(crate) fn end_default_setup(camera_uuid: Uuid, result: SetupResult) {
+    let state = {
+        let mut lock = ui().lock().unwrap();
+        let entry = lock.entry(camera_uuid).or_insert_with(new_entry);
+        clear_loading_timeout(entry);
+        clear_min_loading_timeout(entry);
+        entry.loading_count = 0;
+        entry.loading_started_at = None;
+        entry.state.loading = false;
+        entry.state.loading_message = None;
+        entry.state.setup_progress = None;
+        entry.state.setup_result = Some(result);
+        entry.state.clone()
+    };
+    camera_state::emit_ui(camera_uuid, state);
 }
 
 /// Begin a nested loading overlay for a deliberate long-running action.
@@ -229,6 +282,8 @@ fn begin_loading(camera_uuid: Uuid, message: &str) {
         entry.state.loading = true;
         entry.state.loading_message = Some(message.to_string());
         entry.state.error_dialog = None;
+        entry.state.setup_progress = None;
+        entry.state.setup_result = None;
         arm_loading_timeout(entry, camera_uuid);
         entry.state.clone()
     };
@@ -312,6 +367,13 @@ fn force_end_loading(camera_uuid: Uuid) {
         if !entry.state.rebooting {
             entry.state.loading = false;
             entry.state.loading_message = None;
+        }
+        if entry.state.setup_progress.take().is_some() {
+            entry.state.setup_result = Some(SetupResult {
+                changes: Vec::new(),
+                forced: false,
+                error: Some("The default hardware setup stopped reporting progress".to_string()),
+            });
         }
         entry.state.clone()
     };
@@ -428,13 +490,22 @@ fn loading_message_for_camera_action(action: &CameraAction) -> Option<&'static s
 fn loading_message_for_autopilot_action(action: &AutopilotAction) -> Option<&'static str> {
     match action {
         AutopilotAction::ExportLuaScript => Some("Updating Lua script…"),
-        AutopilotAction::ResetActuatorsConfig => Some("Applying default hardware setup…"),
+        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig => {
+            Some("Applying default hardware setup…")
+        }
         AutopilotAction::SetActuatorsConfig(config) if is_full_hardware_setup(config) => {
             Some("Applying custom hardware setup…")
         }
         AutopilotAction::ForgetActuatorsConfig => Some("Forgetting camera…"),
         _ => None,
     }
+}
+
+fn is_default_setup_action(action: &AutopilotAction) -> bool {
+    matches!(
+        action,
+        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig
+    )
 }
 
 fn is_full_hardware_setup(config: &ActuatorsConfig) -> bool {
@@ -539,5 +610,23 @@ mod tests {
                 .collect()
         };
         retain_known_cameras(&keep);
+    }
+
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn default_setup_result_replaces_loading_and_is_dismissable() {
+        let camera_uuid = Uuid::from_u128(0x5555_6666_7777_8888);
+        start_autopilot_action(camera_uuid, &AutopilotAction::ResetActuatorsConfig);
+        set_setup_progress(camera_uuid, 2, 4, "Applying");
+        assert_eq!(get(camera_uuid).setup_progress.unwrap().step, 2);
+
+        fail_autopilot_action(camera_uuid, &AutopilotAction::ResetActuatorsConfig, "boom");
+        let state = get(camera_uuid);
+        assert!(!state.loading);
+        assert!(state.setup_progress.is_none());
+        assert!(state.error_dialog.is_none());
+        assert_eq!(state.setup_result.unwrap().error.as_deref(), Some("boom"));
+
+        dismiss(camera_uuid, UiDismissField::SetupResult);
+        assert!(get(camera_uuid).setup_result.is_none());
     }
 }
