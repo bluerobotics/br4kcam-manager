@@ -2,6 +2,7 @@
 //! (REST and WebSocket alike) produces the same UI overlay and state updates.
 
 use autopilot::api::{Action as AutopilotAction, ActuatorsControl};
+use br4kcam_api::SetupResult;
 use br4kcam_commands::{Action as CameraAction, CameraControl};
 use serde_json::Value;
 
@@ -88,7 +89,29 @@ pub(crate) async fn autopilot_control(
     let action = actuators_control.action.clone();
     camera_ui::start_autopilot_action(camera_uuid, &action);
 
-    match autopilot::handle_control(actuators_control).await {
+    let result = match &action {
+        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig => {
+            let forced = matches!(action, AutopilotAction::ForceResetActuatorsConfig);
+            autopilot::reset_actuators_config(camera_uuid, forced, &|step, total, label| {
+                camera_ui::set_setup_progress(camera_uuid, step, total, label)
+            })
+            .await
+            .and_then(|outcome| {
+                camera_ui::end_default_setup(
+                    camera_uuid,
+                    SetupResult {
+                        changes: outcome.changes,
+                        forced,
+                        error: None,
+                    },
+                );
+                Ok(serde_json::to_value(outcome.config)?)
+            })
+        }
+        _ => autopilot::handle_control(actuators_control).await,
+    };
+
+    match result {
         Ok(value) => {
             camera_ui::finish_autopilot_action(camera_uuid, &action);
             camera_state::emit_autopilot_control_update(camera_uuid, &action, &value);
