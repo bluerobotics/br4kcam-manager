@@ -6,7 +6,7 @@
     @dismiss="close"
   >
     <div class="text-center">
-      <p class="text-sm text-white">
+      <p class="text-sm text-white whitespace-pre-line break-words">
         {{ props.message }}
       </p>
       <p class="text-xs opacity-70 mt-3 text-white">
