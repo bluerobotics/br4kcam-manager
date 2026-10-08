@@ -176,6 +176,8 @@ fn generate_typescript_bindings_for_br4kcam_api() -> Result<()> {
         br4kcam_api::SystemHealth::export_to_string()?,
         br4kcam_api::CameraStateEvent::export_to_string()?,
         br4kcam_api::CameraUiState::export_to_string()?,
+        br4kcam_api::SetupProgress::export_to_string()?,
+        br4kcam_api::SetupResult::export_to_string()?,
         br4kcam_api::OnePushAwbStatus::export_to_string()?,
         br4kcam_api::OnePushAwbPhase::export_to_string()?,
         br4kcam_api::ConnectionStats::export_to_string()?,
