@@ -40,7 +40,12 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
     let camera_uuid = camera_control.camera_uuid;
     // Addressability, not discovery: a camera absent from the MCM list while ONVIF
     // rediscovers still answers its HTTP API at the hostname we last saw it on.
-    if mcm_client::camera_address(&camera_uuid).await.is_none() {
+    // `SetImageAdjustmentExAll` ignores `camera_uuid` (nil) and fans out to every camera.
+    if !matches!(
+        camera_control.action,
+        CameraAction::SetImageAdjustmentExAll(_)
+    ) && mcm_client::camera_address(&camera_uuid).await.is_none()
+    {
         return Err(ControlError::unknown_camera());
     }
     let action = camera_control.action.clone();
