@@ -22,7 +22,8 @@
           v-model="selectedCameraUUID"
           :items="cameraSelectItems"
           label="Camera"
-          placeholder="No camera"
+          placeholder="No camera detected"
+          :disabled="cameraSelectItems.length === 0"
           theme="dark"
         />
       </template>
