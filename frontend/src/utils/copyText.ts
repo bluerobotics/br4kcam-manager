@@ -35,10 +35,11 @@ function copyWithFallbackMethod(text: string): boolean {
   const field = document.createElement('textarea')
   field.addEventListener('focusin', (event) => event.stopPropagation())
   field.value = text
-  field.setAttribute('readonly', '')
   field.style.cssText =
     'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0.01;z-index:2147483647'
-  document.body.appendChild(field)
+  // A modal <dialog> makes everything outside it inert (unfocusable), so mount inside it.
+  const container = document.activeElement?.closest('dialog, [role="dialog"]') ?? document.body
+  container.appendChild(field)
 
   try {
     field.focus()
@@ -49,48 +50,27 @@ function copyWithFallbackMethod(text: string): boolean {
     console.error(`Failed to copy text to clipboard. Reason: ${error}`)
     return false
   } finally {
-    document.body.removeChild(field)
+    field.remove()
   }
 }
 
-async function copyWithClipboardAPI(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (error) {
-    console.error(`Failed to copy text to clipboard using Clipboard API. Reason: ${error}`)
-    return copyWithFallbackMethod(text)
-  }
-}
-
-/** Copy text with Clipboard API when allowed, else BlueOS-style execCommand fallback. */
+/**
+ * Copy text. execCommand runs first and synchronously so it stays inside the click's
+ * user activation (awaiting permissions/Clipboard API first can lose it in BlueOS iframes);
+ * the Clipboard API is only the secondary path.
+ */
 export async function copyText(text: string): Promise<CopyTextResult> {
   if (!text) return 'manual'
-
-  const canUseClipboardApi =
-    typeof navigator !== 'undefined'
-    && typeof navigator.clipboard?.writeText === 'function'
-
-  try {
-    if (canUseClipboardApi && typeof navigator.permissions?.query === 'function') {
-      const permissionStatus = await navigator.permissions.query({
-        name: 'clipboard-write' as PermissionName,
-      })
-
-      if (permissionStatus.state === 'granted' || permissionStatus.state === 'prompt') {
-        // prompt: writeText itself triggers the browser prompt; don't wait on onchange.
-        return (await copyWithClipboardAPI(text)) ? 'copied' : 'manual'
-      }
-      return copyWithFallbackMethod(text) ? 'copied' : 'manual'
+  if (copyWithFallbackMethod(text)) return 'copied'
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text)
+      return 'copied'
+    } catch (error) {
+      console.error(`Failed to copy text to clipboard using Clipboard API. Reason: ${error}`)
     }
-  } catch (error) {
-    console.error('Error while requesting clipboard-write permission:', error)
   }
-
-  if (canUseClipboardApi) {
-    return (await copyWithClipboardAPI(text)) ? 'copied' : 'manual'
-  }
-  return copyWithFallbackMethod(text) ? 'copied' : 'manual'
+  return 'manual'
 }
 
 export function diagnosticsJson(blob: unknown): string {
