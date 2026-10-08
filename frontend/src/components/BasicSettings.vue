@@ -294,7 +294,7 @@
             :disabled="hardwareSetupControlsDisabled"
             :loading="props.loading"
             theme="dark"
-            @click="resetToRecommendedDefaults"
+            @click="resetToRecommendedDefaults(false)"
           >
             Apply default hardware setup
           </BlueButton>
@@ -1881,14 +1881,15 @@ const saveHardwareSetup = async (): Promise<void> => {
     })
 }
 
-const resetToRecommendedDefaults = async (): Promise<void> => {
+/** `force` re-applies every default even when the saved setup already matches them. */
+const resetToRecommendedDefaults = async (force: boolean): Promise<void> => {
   if (!props.selectedCameraUuid || props.disabled) return
 
   const cameraUuid = props.selectedCameraUuid
   const generation = actuatorsRequestGeneration.value
   const payload = {
     camera_uuid: cameraUuid,
-    action: 'resetActuatorsConfig',
+    action: force ? 'forceResetActuatorsConfig' : 'resetActuatorsConfig',
   }
 
   backendClient
@@ -1908,7 +1909,6 @@ const resetToRecommendedDefaults = async (): Promise<void> => {
         intendedFocusAndZoomParams.value = { ...newParams }
       }
       showAdvancedHardware.value = false
-      applyPanelLayout(true)
     })
     .catch((error) => {
       const message = 'Failed to apply default hardware setup'
@@ -1921,6 +1921,8 @@ defineExpose({
   applyRecommendedCameraSettings,
   rebootCamera: doRestart,
   scrollToHardwareSetup,
+  applyPanelLayout,
+  resetToRecommendedDefaults,
 })
 
 watch(
