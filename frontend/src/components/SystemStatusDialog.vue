@@ -25,6 +25,42 @@
         </p>
       </div>
     </template>
+    <template v-else-if="viewBusyResult">
+      <p
+        v-if="viewBusyResult.error"
+        class="text-sm text-red-300 text-center"
+        role="alert"
+      >
+        {{ viewBusyResult.error }}
+      </p>
+      <template v-else-if="viewBusyResult.changes.length > 0">
+        <p
+          class="text-sm text-white text-center mb-3"
+          aria-live="polite"
+        >
+          Default hardware setup applied: {{ viewBusyResult.changes.length }} changed.
+        </p>
+        <ul class="text-xs font-mono text-white opacity-80 list-disc pl-5 break-words">
+          <li
+            v-for="change in viewBusyResult.changes"
+            :key="change"
+          >
+            {{ change }}
+          </li>
+        </ul>
+      </template>
+      <p
+        v-else
+        class="text-sm text-white text-center"
+        aria-live="polite"
+      >
+        {{
+          viewBusyResult.forced
+            ? 'Default hardware setup re-applied. Nothing differed from the defaults.'
+            : 'Already up to date. The saved hardware setup already matches the defaults.'
+        }}
+      </p>
+    </template>
     <template v-else-if="viewAwaitingClose">
       <p class="text-sm text-white text-center">
         {{ viewRecoveryMessage }}
@@ -169,7 +205,7 @@
            trailing action against the right edge. -->
       <div class="flex items-center gap-2 min-w-0">
         <BlueButton
-          v-if="!viewBusyCopy"
+          v-if="!viewBusyCopy && !viewBusyResult"
           density="compact"
           theme="dark"
           class="shrink-0"
@@ -180,8 +216,29 @@
         </BlueButton>
       </div>
       <template v-if="!viewConnectionCopy">
+        <div
+          v-if="viewBusyResult"
+          class="flex items-center gap-2"
+        >
+          <BlueButton
+            v-if="!viewBusyResult.error && viewBusyResult.changes.length === 0 && !viewBusyResult.forced"
+            density="compact"
+            theme="dark"
+            @click="emit('force-reapply')"
+          >
+            Force re-apply
+          </BlueButton>
+          <BlueButton
+            variant="filled"
+            density="compact"
+            theme="dark"
+            @click="emit('dismiss-result')"
+          >
+            OK
+          </BlueButton>
+        </div>
         <BlueButton
-          v-if="viewAwaitingClose && !viewBusyCopy"
+          v-else-if="viewAwaitingClose && !viewBusyCopy"
           variant="filled"
           density="compact"
           theme="dark"
@@ -241,7 +298,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-import type { CameraConnectivity, SystemHealth } from '@/bindings/br4kcam_api'
+import { useNow } from '@vueuse/core'
+
+import type {
+  CameraConnectivity,
+  SetupProgress,
+  SetupResult,
+  SystemHealth,
+} from '@/bindings/br4kcam_api'
 import { BlueButton, BlueIcon, BlueSpinner } from '@bluerobotics/bluevue'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
@@ -286,6 +350,11 @@ type StatusCopy = {
 type BusyState = {
   message: string
   rebooting: boolean
+  /** Epoch milliseconds the action started, for the elapsed timer. */
+  startedAt?: number | null
+  progress?: SetupProgress | null
+  /** Outcome of the action; shown instead of the spinner until dismissed. */
+  result?: SetupResult | null
 }
 
 type LeaveSnapshot = {
@@ -295,6 +364,7 @@ type LeaveSnapshot = {
   problems: HealthProblem[]
   connectionCopy: StatusCopy | null
   busyCopy: StatusCopy | null
+  busyResult: SetupResult | null
 }
 
 type ActionKind = 'forget' | 'lua_script'
@@ -318,6 +388,8 @@ const emit = defineEmits<{
   (e: 'minimize'): void
   (e: 'forgotten', cameraUuid: string): void
   (e: 'go-to-setup'): void
+  (e: 'dismiss-result'): void
+  (e: 'force-reapply'): void
 }>()
 
 const {
@@ -368,9 +440,11 @@ const connectionCopy = computed((): StatusCopy | null => {
   }
 })
 
+const now = useNow({ interval: 1000 })
+
 const busyCopy = computed((): StatusCopy | null => {
   const busy = props.busy
-  if (!busy) return null
+  if (!busy || busy.result) return null
   if (busy.rebooting) {
     return {
       title: busy.message,
@@ -378,10 +452,21 @@ const busyCopy = computed((): StatusCopy | null => {
       progress: 'Waiting for the camera to come back…',
     }
   }
+  const step = busy.progress
+    ? `Step ${busy.progress.step}/${busy.progress.total}: ${busy.progress.label}`
+    : 'Working…'
+  const elapsedSeconds = busy.startedAt
+    ? Math.max(0, Math.floor((now.value.getTime() - busy.startedAt) / 1000))
+    : null
+  const elapsed =
+    elapsedSeconds == null
+      ? ''
+      : ` · ${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')} elapsed`
+  const hint = busy.progress ? ' This can take a few minutes.' : ''
   return {
     title: busy.message,
-    body: 'Controls for this camera stay paused until it finishes. You can minimize this and keep working with other cameras.',
-    progress: 'Working…',
+    body: `Controls for this camera stay paused until it finishes. You can minimize this and keep working with other cameras.${hint}`,
+    progress: `${step}${elapsed}`,
   }
 })
 
@@ -392,6 +477,7 @@ const liveSnapshot = computed((): LeaveSnapshot => ({
   problems: props.problems,
   connectionCopy: connectionCopy.value,
   busyCopy: busyCopy.value,
+  busyResult: props.busy?.result ?? null,
 }))
 
 const viewConnectionCopy = computed(() => {
@@ -402,6 +488,11 @@ const viewConnectionCopy = computed(() => {
 const viewBusyCopy = computed(() => {
   if (props.show) return busyCopy.value
   return leaveSnapshot.value?.busyCopy ?? busyCopy.value
+})
+
+const viewBusyResult = computed(() => {
+  if (props.show) return props.busy?.result ?? null
+  return leaveSnapshot.value?.busyResult ?? props.busy?.result ?? null
 })
 
 /** Connection takes the dialog over a camera action: nothing can run while the backend is away. */
@@ -464,6 +555,9 @@ const anyProblemSelfRecovers = computed(() =>
 )
 const dialogTitle = computed(() => {
   if (viewStatusCopy.value) return viewStatusCopy.value.title
+  if (viewBusyResult.value) {
+    return viewBusyResult.value.error ? 'Default setup failed' : 'Default hardware setup'
+  }
   if (viewAwaitingClose.value) return viewRecoveryTitle.value
   return 'System status'
 })
