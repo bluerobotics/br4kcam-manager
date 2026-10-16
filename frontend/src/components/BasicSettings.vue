@@ -2016,8 +2016,24 @@ const saveHardwareSetup = async (): Promise<void> => {
 }
 
 /** `force` re-applies every default even when the saved setup already matches them. */
-const resetToRecommendedDefaults = (force: boolean): void => {
-  if (!props.selectedCameraUuid || props.disabled) return
+const resetToRecommendedDefaults = async (force: boolean): Promise<void> => {
+  if (!props.selectedCameraUuid || props.disabled || vehicleArmed.value) return
+  const cameraUuid = props.selectedCameraUuid
+  if (!force) {
+    // Only a non-forced apply that changes something reboots the autopilot, so only that one asks first.
+    // A failed preview falls through to the confirmation.
+    const changes = await backendClient
+      .request('POST', '/autopilot/control', {
+        camera_uuid: cameraUuid,
+        action: 'previewResetActuatorsConfig',
+      })
+      .catch(() => null)
+    if (props.selectedCameraUuid !== cameraUuid) return
+    if (Array.isArray(changes) && changes.length === 0) {
+      applyRecommendedDefaults(false)
+      return
+    }
+  }
   requestAutopilotRestart(() => {
     applyRecommendedDefaults(force)
   })
