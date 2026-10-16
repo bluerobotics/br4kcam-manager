@@ -255,7 +255,7 @@ impl Default for ActuatorsParameters {
             tilt_channel_reversed: false,
 
             // Mount
-            tilt_mnt_type: api::MountType::Servo,
+            tilt_mnt_type: api::MountType::BrushlessPWM,
             tilt_mnt_pitch_min: -70,
             tilt_mnt_pitch_max: 70,
         }
