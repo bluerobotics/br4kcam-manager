@@ -173,12 +173,13 @@
             @update:model-value="updateActuatorsConfig('enable_focus_and_zoom_correlation', $event)"
           />
           <BlueSwitch
+            :key="tiltStabilizationSwitchKey"
             :model-value="tiltStabilizationEnabled"
-            :disabled="actuatorControlsDisabled || tiltStabilizationPending"
+            :disabled="actuatorControlsDisabled || tiltStabilizationPending || vehicleArmed"
             name="tilt-stabilization"
             label="Stabilize mount"
             theme="dark"
-            @update:model-value="updateTiltStabilization($event as boolean)"
+            @update:model-value="tiltStabilizationConfirm = $event as boolean"
           />
           <!-- <BlueSlider
             v-model="focusOffsetUI"
@@ -636,6 +637,36 @@
     </div>
   </div>
 
+  <StatusDialogShell
+    :show="tiltStabilizationConfirm !== null"
+    title="Restart the autopilot?"
+    :persistent="false"
+    :logo="false"
+    @dismiss="closeTiltStabilizationConfirm"
+  >
+    <p class="text-sm text-white text-center">
+      Changing mount stabilization restarts the autopilot. Actuator control is unavailable for about a minute while it comes back.
+    </p>
+    <template #actions>
+      <BlueButton
+        variant="text"
+        density="compact"
+        theme="dark"
+        @click="closeTiltStabilizationConfirm"
+      >
+        Cancel
+      </BlueButton>
+      <BlueButton
+        variant="filled"
+        density="compact"
+        theme="dark"
+        @click="confirmTiltStabilization"
+      >
+        Restart and change
+      </BlueButton>
+    </template>
+  </StatusDialogShell>
+
   <BlueDialog
     v-model="bitrateInfoOpen"
     title="H.264 Bitrate Options"
@@ -720,6 +751,7 @@ import { useCameraState } from '@/utils/useCameraState'
 import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, MountType, ScriptFunction, ServoChannel } from '@/bindings/autopilot'
 import type { CameraStateEvent, OnePushAwbStatus } from '@/bindings/br4kcam_api'
 import WelcomeDialog from './WelcomeDialog.vue'
+import StatusDialogShell from './StatusDialogShell.vue'
 import {
   autopilotDependentControlsBlocked,
   useSystemHealth,
@@ -1520,9 +1552,15 @@ const tiltStabilizationEnabled = computed(
   () => currentFocusAndZoomParams.value.tilt_mnt_type === 'Servo',
 )
 const tiltStabilizationPending = ref(false)
+const vehicleArmed = computed(() => systemHealth.value?.vehicle_armed === true)
+// Target value awaiting the user's restart confirmation; null when the dialog is closed.
+const tiltStabilizationConfirm = ref<boolean | null>(null)
+// BlueSwitch flips its own state on click and only resyncs when its model prop changes, so
+// closing the dialog remounts the switch to show the real value again.
+const tiltStabilizationSwitchKey = ref(0)
 
 const updateTiltStabilization = (enabled: boolean): void => {
-  if (!props.selectedCameraUuid || props.disabled || tiltStabilizationPending.value) return
+  if (!props.selectedCameraUuid || props.disabled || tiltStabilizationPending.value || vehicleArmed.value) return
 
   const cameraUuid = props.selectedCameraUuid
   const generation = actuatorsRequestGeneration.value
@@ -1566,6 +1604,17 @@ const updateTiltStabilization = (enabled: boolean): void => {
         tiltStabilizationPending.value = false
       }
     })
+}
+
+const closeTiltStabilizationConfirm = (): void => {
+  tiltStabilizationConfirm.value = null
+  tiltStabilizationSwitchKey.value += 1
+}
+
+const confirmTiltStabilization = (): void => {
+  const enabled = tiltStabilizationConfirm.value
+  closeTiltStabilizationConfirm()
+  if (enabled !== null) updateTiltStabilization(enabled)
 }
 
 const sendQueuedActuatorState = (param: ActuatorKey, allowWhileDisabled = false): void => {
