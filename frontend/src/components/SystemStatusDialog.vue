@@ -142,16 +142,21 @@
           "
           class="mt-3"
         >
-          <BlueButton
+          <BlueTooltip
             v-if="problem.showUpdateLuaScript"
-            density="compact"
-            theme="dark"
-            class="mr-2"
-            :disabled="actionInProgress != null"
-            @click="runUpdateLuaScript"
+            text="Disabled while the vehicle is armed"
+            :disabled="!vehicleArmed"
           >
-            Update autopilot script
-          </BlueButton>
+            <BlueButton
+              density="compact"
+              theme="dark"
+              class="mr-2"
+              :disabled="actionInProgress != null || vehicleArmed"
+              @click="pendingAutopilotRestart = runUpdateLuaScript"
+            >
+              Update autopilot script
+            </BlueButton>
+          </BlueTooltip>
           <BlueButton
             v-if="problem.showGoToSetup"
             density="compact"
@@ -170,16 +175,21 @@
           >
             Review
           </BlueButton>
-          <BlueButton
+          <BlueTooltip
             v-if="problem.showForget"
-            density="compact"
-            theme="dark"
-            class="mr-2"
-            :disabled="actionInProgress != null"
-            @click="confirmForgetOpen = true"
+            text="Disabled while the vehicle is armed"
+            :disabled="!vehicleArmed"
           >
-            Remove from setup
-          </BlueButton>
+            <BlueButton
+              density="compact"
+              theme="dark"
+              class="mr-2"
+              :disabled="actionInProgress != null || vehicleArmed"
+              @click="confirmForgetOpen = true"
+            >
+              Remove from setup
+            </BlueButton>
+          </BlueTooltip>
         </div>
       </div>
     </template>
@@ -268,6 +278,12 @@
     </template>
   </StatusDialogShell>
 
+  <AutopilotRestartDialog
+    :show="pendingAutopilotRestart !== null"
+    @cancel="pendingAutopilotRestart = null"
+    @confirm="confirmAutopilotRestart"
+  />
+
   <StatusDialogShell
     :show="confirmForgetOpen"
     title="Remove from setup?"
@@ -276,7 +292,7 @@
     @dismiss="confirmForgetOpen = false"
   >
     <p class="text-sm text-white text-center">
-      This deletes the saved hardware setup for this camera. The camera itself is unchanged — you can set it up again later.
+      This deletes the saved hardware setup for this camera. The camera itself is unchanged -- you can set it up again later. Removing it may restart the autopilot.
     </p>
     <template #actions>
       <BlueButton
@@ -377,15 +393,20 @@
       >
         Cancel
       </BlueButton>
-      <BlueButton
-        variant="filled"
-        density="compact"
-        theme="dark"
-        :disabled="!reviewHasChanges || reviewApplyInProgress"
-        @click="runApplyReview"
+      <BlueTooltip
+        text="Disabled while the vehicle is armed"
+        :disabled="!(vehicleArmed && reviewRestoresParameters)"
       >
-        Apply
-      </BlueButton>
+        <BlueButton
+          variant="filled"
+          density="compact"
+          theme="dark"
+          :disabled="!reviewHasChanges || reviewApplyInProgress || (vehicleArmed && reviewRestoresParameters)"
+          @click="requestApplyReview"
+        >
+          Apply
+        </BlueButton>
+      </BlueTooltip>
     </template>
   </StatusDialogShell>
 
@@ -406,8 +427,9 @@ import type {
   SetupResult,
   SystemHealth,
 } from '@/bindings/br4kcam_api'
-import { BlueButton, BlueIcon, BlueSelect, BlueSpinner } from '@bluerobotics/bluevue'
+import { BlueButton, BlueIcon, BlueSelect, BlueSpinner, BlueTooltip } from '@bluerobotics/bluevue'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
+import AutopilotRestartDialog from '@/components/AutopilotRestartDialog.vue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
 import { backendClient, type ConnectionState } from '@/utils/backendClient'
 import { useCopyDiagnostics } from '@/utils/useCopyDiagnostics'
@@ -728,6 +750,13 @@ const closeReview = (): void => {
 
 const reviewActionOf = (name: string): ReviewAction => reviewActions.value[name] ?? 'IGNORE'
 
+const vehicleArmed = computed(() => props.systemHealth?.vehicle_armed === true)
+// Actions that may restart the autopilot wait here until the user confirms.
+const pendingAutopilotRestart = ref<(() => void) | null>(null)
+const reviewRestoresParameters = computed(() =>
+  reviewDrifts.value.some((drift) => reviewActionOf(drift.name) === 'RESTORE'),
+)
+
 const setReviewAction = (name: string, action: ReviewAction): void => {
   reviewActions.value = { ...reviewActions.value, [name]: action }
 }
@@ -779,6 +808,20 @@ const runApplyReview = async (): Promise<void> => {
   } finally {
     reviewApplyInProgress.value = false
   }
+}
+
+const requestApplyReview = (): void => {
+  if (reviewRestoresParameters.value) {
+    pendingAutopilotRestart.value = runApplyReview
+    return
+  }
+  runApplyReview()
+}
+
+const confirmAutopilotRestart = (): void => {
+  const run = pendingAutopilotRestart.value
+  pendingAutopilotRestart.value = null
+  if (run && !vehicleArmed.value) run()
 }
 
 watch(reviewDrifts, (drifts) => {
