@@ -125,6 +125,7 @@
     <BlueExpansiblePanel
       title="White Balance"
       :expanded="false"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
     >
       <BlueSelect
@@ -233,6 +234,7 @@
     <BlueExpansiblePanel
       title="Exposure & Gain"
       :expanded="false"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
     >
       <BlueSwitch
@@ -385,6 +387,7 @@
     <BlueExpansiblePanel
       title="Infrared"
       :expanded="false"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
     >
       <BlueSelect
@@ -552,6 +555,7 @@
     <BlueExpansiblePanel
       title="Advanced"
       :expanded="false"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
     >
       <BlueSelect
