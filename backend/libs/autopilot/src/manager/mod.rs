@@ -23,6 +23,7 @@ use crate::{
     CameraActuators,
     api::{self, ServoChannel},
     mavlink::{self, MavlinkComponent},
+    parameters::ActuatorsParameters,
 };
 
 pub static MANAGER: OnceCell<RwLock<Manager>> = OnceCell::new();
@@ -152,21 +153,46 @@ impl State {
 }
 
 impl Manager {
-    /// Send focus/zoom setpoints without waiting for SERVO (caller measures separately).
+    /// Send focus/zoom/tilt setpoints without waiting for SERVO (caller measures separately).
     ///
     /// Does not touch `MANAGER` — caller must validate the camera has actuators first.
-    #[instrument(level = "debug")]
-    pub async fn apply_state_setpoints(new_state: &api::ActuatorsState) -> Result<()> {
-        use ::mavlink::ardupilotmega::{COMMAND_LONG_DATA, CameraZoomType, MavCmd, SetFocusType};
-
-        if new_state.tilt.is_some() {
-            if new_state.focus.is_none() && new_state.zoom.is_none() {
-                return Err(anyhow::anyhow!("Tilt setpoint is not implemented"));
-            }
-            warn!("Ignoring unimplemented tilt setpoint; applying focus/zoom only");
-        }
+    // DO_MOUNT_CONTROL is deprecated upstream, but it is the command ArduPilot's servo mount
+    // backends honour on this firmware (verified on the DUT). GIMBAL_MANAGER_* is untested here.
+    #[allow(deprecated)]
+    #[instrument(level = "debug", skip(parameters))]
+    pub async fn apply_state_setpoints(
+        new_state: &api::ActuatorsState,
+        parameters: &ActuatorsParameters,
+    ) -> Result<()> {
+        use ::mavlink::ardupilotmega::{
+            COMMAND_LONG_DATA, CameraZoomType, MavCmd, MavMountMode, SetFocusType,
+        };
 
         let mavlink = crate::mavlink::component()?;
+
+        if let Some(tilt) = new_state.tilt {
+            // Tilt 0 is the PWM min. Reversed servos map that to pitch max, otherwise pitch min.
+            let pitch_min = parameters.tilt_mnt_pitch_min as f32;
+            let pitch_max = parameters.tilt_mnt_pitch_max as f32;
+            let fraction = tilt.clamp(0.0, 100.0) / 100.0;
+            let pitch = if parameters.tilt_channel_reversed {
+                pitch_max - fraction * (pitch_max - pitch_min)
+            } else {
+                pitch_min + fraction * (pitch_max - pitch_min)
+            };
+            mavlink
+                .send_command(COMMAND_LONG_DATA {
+                    target_system: 1,
+                    target_component: 1,
+                    command: MavCmd::MAV_CMD_DO_MOUNT_CONTROL,
+                    confirmation: 0,
+                    param1: pitch,
+                    param7: MavMountMode::MAV_MOUNT_MODE_MAVLINK_TARGETING as u8 as f32,
+                    ..Default::default()
+                })
+                .await
+                .context("Failed sending MAV_CMD_DO_MOUNT_CONTROL command")?;
+        }
 
         if let Some(focus) = new_state.focus {
             mavlink
