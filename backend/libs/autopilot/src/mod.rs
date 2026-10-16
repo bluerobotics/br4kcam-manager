@@ -106,6 +106,33 @@ fn changed_parameters(
         .collect())
 }
 
+/// The saved actuators configuration of `camera_uuid`, if it has one.
+async fn saved_actuators_config(camera_uuid: Uuid) -> Result<Option<api::ActuatorsConfig>> {
+    Ok(MANAGER
+        .get()
+        .context("Not available")?
+        .read()
+        .await
+        .settings
+        .actuators
+        .get(&camera_uuid)
+        .map(api::ActuatorsConfig::from))
+}
+
+/// Settings that a non-forced default setup would change. A camera with no saved setup
+/// reports a single "Initial hardware setup" entry.
+fn default_setup_changes(
+    current: &Option<api::ActuatorsConfig>,
+    default_config: &api::ActuatorsConfig,
+) -> Result<Vec<String>> {
+    match (current, &default_config.parameters) {
+        (Some(current), Some(defaults)) => {
+            changed_parameters(current.parameters.as_ref().unwrap_or(defaults), defaults)
+        }
+        _ => Ok(vec!["Initial hardware setup".to_string()]),
+    }
+}
+
 /// Apply the default hardware setup, reporting `progress(step, total, label)`.
 ///
 /// Without `force`, a camera whose saved setup already matches the defaults is left
@@ -121,21 +148,8 @@ pub async fn reset_actuators_config(
     let default_config = api::ActuatorsConfig::from(&CameraActuators::default());
 
     progress(1, STEPS, "Comparing the current setup with the defaults");
-    let current = MANAGER
-        .get()
-        .context("Not available")?
-        .read()
-        .await
-        .settings
-        .actuators
-        .get(&camera_uuid)
-        .map(api::ActuatorsConfig::from);
-    let changes = match (&current, &default_config.parameters) {
-        (Some(current), Some(defaults)) => {
-            changed_parameters(current.parameters.as_ref().unwrap_or(defaults), defaults)?
-        }
-        _ => vec!["Initial hardware setup".to_string()],
-    };
+    let current = saved_actuators_config(camera_uuid).await?;
+    let changes = default_setup_changes(&current, &default_config)?;
     if !force
         && changes.is_empty()
         && let Some(config) = current
@@ -395,6 +409,12 @@ pub(crate) async fn control_inner(
 
             serde_json::to_value(config)?
         }
+        Action::PreviewResetActuatorsConfig => {
+            let current = saved_actuators_config(actuators_control.camera_uuid).await?;
+            let default_config = api::ActuatorsConfig::from(&CameraActuators::default());
+
+            serde_json::to_value(default_setup_changes(&current, &default_config)?)?
+        }
         Action::ResetActuatorsConfig | Action::ForceResetActuatorsConfig => {
             let force = matches!(actuators_control.action, Action::ForceResetActuatorsConfig);
             let outcome = Box::pin(reset_actuators_config(
@@ -528,7 +548,7 @@ mod tests {
     use anyhow::anyhow;
 
     use super::{
-        ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters,
+        ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters, default_setup_changes,
         error_indicates_actuators_not_configured,
     };
 
@@ -544,6 +564,20 @@ mod tests {
         let changes = changed_parameters(&current, &defaults).unwrap();
         assert_eq!(changes.len(), 1);
         assert!(changes[0].starts_with("focus_channel: SERVO1 → "));
+    }
+
+    #[test]
+    fn default_setup_changes_only_reports_a_real_difference() {
+        let defaults = api::ActuatorsConfig::from(&CameraActuators::default());
+        assert_eq!(
+            default_setup_changes(&None, &defaults).unwrap(),
+            ["Initial hardware setup"]
+        );
+        assert!(
+            default_setup_changes(&Some(defaults.clone()), &defaults)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

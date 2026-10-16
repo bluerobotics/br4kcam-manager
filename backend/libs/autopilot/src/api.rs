@@ -31,6 +31,10 @@ pub enum Action {
     ResetActuatorsConfig,
     #[serde(rename = "forceResetActuatorsConfig")]
     ForceResetActuatorsConfig,
+    /// Lists the settings a non-forced default setup would change, without writing anything.
+    /// An empty list means that apply will not reboot the autopilot.
+    #[serde(rename = "previewResetActuatorsConfig")]
+    PreviewResetActuatorsConfig,
     #[serde(rename = "forgetActuatorsConfig")]
     ForgetActuatorsConfig,
     /// Saves the autopilot's current value of each named parameter into the saved setup.
