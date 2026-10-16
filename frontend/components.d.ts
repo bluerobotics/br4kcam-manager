@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AutopilotRestartDialog: typeof import('./src/components/AutopilotRestartDialog.vue')['default']
     BasicSettings: typeof import('./src/components/BasicSettings.vue')['default']
     CopyFeedbackToast: typeof import('./src/components/CopyFeedbackToast.vue')['default']
     ErrorDialog: typeof import('./src/components/ErrorDialog.vue')['default']
