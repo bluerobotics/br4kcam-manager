@@ -137,7 +137,7 @@
         @update:model-value="updateActuatorsState('zoom', $event as number)"
       />
       <BlueSlider
-        v-if="actuatorsState && false"
+        v-if="actuatorsState"
         v-model="actuatorsState.tilt"
         :disabled="actuatorControlsDisabled"
         name="tilt"
@@ -148,8 +148,8 @@
         :format-display="formatTiltValue"
         :scale-fn="scaleTilt"
         :unscale-fn="unscaleTilt"
-        :label-min="`${currentFocusAndZoomParams.tilt_mnt_pitch_min}` || ''"
-        :label-max="`${currentFocusAndZoomParams.tilt_mnt_pitch_max}` || ''"
+        :label-min="tiltLabelMin"
+        :label-max="tiltLabelMax"
         theme="dark"
         value-weight="regular"
         label-width="130px"
@@ -163,7 +163,7 @@
         theme="dark"
         @update:expanded="panelsOpen.actuatorsMore = $event"
       >
-        <div>
+        <div class="flex flex-col gap-2">
           <BlueSwitch
             v-model="currentFocusAndZoomParams.enable_focus_and_zoom_correlation"
             :disabled="actuatorControlsDisabled"
@@ -171,6 +171,14 @@
             label="Enable focus and zoom correlation"
             theme="dark"
             @update:model-value="updateActuatorsConfig('enable_focus_and_zoom_correlation', $event)"
+          />
+          <BlueSwitch
+            :model-value="tiltStabilizationEnabled"
+            :disabled="actuatorControlsDisabled || tiltStabilizationPending"
+            name="tilt-stabilization"
+            label="Stabilize mount"
+            theme="dark"
+            @update:model-value="updateTiltStabilization($event as boolean)"
           />
           <!-- <BlueSlider
             v-model="focusOffsetUI"
@@ -256,6 +264,15 @@
       <div>
         <p class="mb-3">
           Assign Navigator PWM output channels to your camera functions below. The recommended setup is:
+        </p>
+        <p class="mb-3">
+          Mount tilt limits can also be configured in
+          <a
+            :href="blueosCameraSetupUrl"
+            target="_blank"
+            rel="noopener"
+            class="underline"
+          >BlueOS camera setup</a>.
         </p>
         <ul class="list-disc pl-5 mb-4 text-base">
           <li><b>Focus</b>: Connect the camera's Focus cable to Navigator's <b>PWM Channel 10</b></li>
@@ -1221,9 +1238,24 @@ const formatZoomValue = (zoomLevel: number): string => {
   return `${zoomLevel.toFixed(1)}x`
 }
 
+const blueosCameraSetupUrl = `${window.location.origin}/vehicle/setup/configure/camera`
+
+// Slider 0 is the PWM minimum: pitch max when reversed, pitch min otherwise.
+const tiltLabelMin = computed(() => {
+  const { tilt_mnt_pitch_min: minAngle, tilt_mnt_pitch_max: maxAngle, tilt_channel_reversed: reversed } = currentFocusAndZoomParams.value
+  return `${reversed ? maxAngle : minAngle}`
+})
+const tiltLabelMax = computed(() => {
+  const { tilt_mnt_pitch_min: minAngle, tilt_mnt_pitch_max: maxAngle, tilt_channel_reversed: reversed } = currentFocusAndZoomParams.value
+  return `${reversed ? minAngle : maxAngle}`
+})
+
 const scaleTilt = (raw: number): number => {
   const minAngle = currentFocusAndZoomParams.value.tilt_mnt_pitch_min ?? -90
   const maxAngle = currentFocusAndZoomParams.value.tilt_mnt_pitch_max ?? 90
+  if (currentFocusAndZoomParams.value.tilt_channel_reversed) {
+    return maxAngle - (raw / 100) * (maxAngle - minAngle)
+  }
   return minAngle + (raw / 100) * (maxAngle - minAngle)
 }
 
@@ -1231,6 +1263,9 @@ const unscaleTilt = (scaled: number): number => {
   const minAngle = currentFocusAndZoomParams.value.tilt_mnt_pitch_min ?? -90
   const maxAngle = currentFocusAndZoomParams.value.tilt_mnt_pitch_max ?? 90
   if (maxAngle === minAngle) return 0
+  if (currentFocusAndZoomParams.value.tilt_channel_reversed) {
+    return 100 * (maxAngle - scaled) / (maxAngle - minAngle)
+  }
   return 100 * (scaled - minAngle) / (maxAngle - minAngle)
 }
 
@@ -1480,6 +1515,59 @@ const updateActuatorsConfig = (param: keyof ActuatorsParametersConfig, value: an
 }
 
  
+// Same convention as BlueOS "Stabilize mount": Servo mount type is stabilized, BrushlessPWM is not.
+const tiltStabilizationEnabled = computed(
+  () => currentFocusAndZoomParams.value.tilt_mnt_type === 'Servo',
+)
+const tiltStabilizationPending = ref(false)
+
+const updateTiltStabilization = (enabled: boolean): void => {
+  if (!props.selectedCameraUuid || props.disabled || tiltStabilizationPending.value) return
+
+  const cameraUuid = props.selectedCameraUuid
+  const generation = actuatorsRequestGeneration.value
+  const previous = currentFocusAndZoomParams.value.tilt_mnt_type
+  const mountType: MountType = enabled ? 'Servo' : 'BrushlessPWM'
+  currentFocusAndZoomParams.value = { ...currentFocusAndZoomParams.value, tilt_mnt_type: mountType }
+  tiltStabilizationPending.value = true
+
+  const payload: ActuatorsControl = {
+    camera_uuid: cameraUuid,
+    action: 'setActuatorsConfig',
+    json: { parameters: { tilt_mnt_type: mountType } as ActuatorsParametersConfig } as ActuatorsConfig,
+  }
+
+  backendClient
+    .request('POST', '/autopilot/control', payload)
+    .then((data) => {
+      if (
+        props.selectedCameraUuid !== cameraUuid ||
+        generation !== actuatorsRequestGeneration.value
+      ) {
+        return
+      }
+      const newParams = (data as ActuatorsConfig)?.parameters
+      if (newParams) {
+        applyConfigParameters(newParams)
+      }
+    })
+    .catch((error) => {
+      if (
+        props.selectedCameraUuid !== cameraUuid ||
+        generation !== actuatorsRequestGeneration.value
+      ) {
+        return
+      }
+      currentFocusAndZoomParams.value = { ...currentFocusAndZoomParams.value, tilt_mnt_type: previous }
+      console.log('Error sending tilt_mnt_type control', error.message)
+    })
+    .finally(() => {
+      if (generation === actuatorsRequestGeneration.value) {
+        tiltStabilizationPending.value = false
+      }
+    })
+}
+
 const sendQueuedActuatorState = (param: ActuatorKey, allowWhileDisabled = false): void => {
   if (!props.selectedCameraUuid) return
   if (props.disabled && !allowWhileDisabled) return
