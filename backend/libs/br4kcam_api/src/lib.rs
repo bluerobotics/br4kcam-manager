@@ -182,6 +182,8 @@ pub struct SystemHealth {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub autopilot_detail: Option<String>,
+    /// True while the autopilot reports the vehicle armed.
+    pub vehicle_armed: bool,
     /// True when `SCR_ENABLE` is known and not 1: focus/zoom correlation is inert.
     pub lua_scripting_disabled: bool,
     /// Whether the installed Lua script matches this configuration.
