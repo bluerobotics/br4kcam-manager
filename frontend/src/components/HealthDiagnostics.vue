@@ -2,6 +2,7 @@
   <BlueExpansiblePanel
     title="Diagnostics for support"
     :expanded="false"
+    body-class="px-13 pt-4 pb-4"
     theme="dark"
     class="px-6"
   >
