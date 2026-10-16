@@ -137,6 +137,7 @@
           v-if="
             problem.showForget
               || problem.showGoToSetup
+              || problem.showReview
               || problem.showUpdateLuaScript
           "
           class="mt-3"
@@ -159,6 +160,15 @@
             @click="goToSetup"
           >
             Open hardware setup
+          </BlueButton>
+          <BlueButton
+            v-if="problem.showReview"
+            density="compact"
+            theme="dark"
+            class="mr-2"
+            @click="openReview"
+          >
+            Review
           </BlueButton>
           <BlueButton
             v-if="problem.showForget"
@@ -289,6 +299,96 @@
     </template>
   </StatusDialogShell>
 
+  <StatusDialogShell
+    :show="reviewOpen"
+    title="Review autopilot parameters"
+    width="720px"
+    :persistent="false"
+    :logo="false"
+    @dismiss="closeReview"
+  >
+    <p class="text-sm text-white mb-3 opacity-90">
+      Choose an action for each parameter. IGNORE leaves the autopilot value in place, RESTORE writes the saved value back to the autopilot, and ADOPT saves the autopilot value into the setup. Restoring a mount type or channel function reboots the autopilot. Ignored values keep this warning until you re-apply the setup.
+    </p>
+    <table class="w-full text-xs font-mono text-white">
+      <thead>
+        <tr class="text-left border-b border-white/10">
+          <th class="py-2 pr-3 font-medium">
+            PARAMETER
+          </th>
+          <th class="py-2 pr-3 font-medium">
+            Saved value
+          </th>
+          <th class="py-2 pr-3 font-medium">
+            Current value
+          </th>
+          <th class="py-2 pr-3 font-medium">
+            Action
+          </th>
+          <th class="py-2 font-medium">
+            Result
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          v-for="drift in reviewDrifts"
+          :key="drift.name"
+          class="border-b border-white/5"
+        >
+          <td class="py-2 pr-3 whitespace-nowrap">
+            {{ drift.name }}
+          </td>
+          <td class="py-2 pr-3">
+            {{ drift.expected }}
+          </td>
+          <td class="py-2 pr-3">
+            {{ drift.actual }}
+          </td>
+          <td class="py-2 pr-3">
+            <BlueSelect
+              :model-value="reviewActionOf(drift.name)"
+              :items="reviewActionItems(drift.adoptable)"
+              :info-tooltip="drift.adoptable ? undefined : 'Set by the channel setup. Re-apply the hardware setup to restore it.'"
+              width="110px"
+              theme="dark"
+              @update:model-value="setReviewAction(drift.name, $event as ReviewAction)"
+            />
+          </td>
+          <td class="py-2">
+            {{ reviewResultText(drift, reviewActionOf(drift.name)) }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p
+      v-if="reviewError"
+      class="text-xs mt-3 text-red-300"
+      role="alert"
+    >
+      {{ reviewError }}
+    </p>
+    <template #actions>
+      <BlueButton
+        variant="text"
+        density="compact"
+        theme="dark"
+        @click="closeReview"
+      >
+        Cancel
+      </BlueButton>
+      <BlueButton
+        variant="filled"
+        density="compact"
+        theme="dark"
+        :disabled="!reviewHasChanges || reviewApplyInProgress"
+        @click="runApplyReview"
+      >
+        Apply
+      </BlueButton>
+    </template>
+  </StatusDialogShell>
+
   <CopyFeedbackToast
     :message="copyFeedback"
     @dismiss="clearCopyFeedbackMessage"
@@ -306,7 +406,7 @@ import type {
   SetupResult,
   SystemHealth,
 } from '@/bindings/br4kcam_api'
-import { BlueButton, BlueIcon, BlueSpinner } from '@bluerobotics/bluevue'
+import { BlueButton, BlueIcon, BlueSelect, BlueSpinner } from '@bluerobotics/bluevue'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
 import { backendClient, type ConnectionState } from '@/utils/backendClient'
@@ -403,6 +503,12 @@ const {
 const confirmForgetOpen = ref(false)
 const actionInProgress = ref<ActionKind | null>(null)
 const actionError = ref<string | null>(null)
+const reviewOpen = ref(false)
+/** What to do with each drifted parameter in the review table. Missing means IGNORE. */
+type ReviewAction = 'IGNORE' | 'RESTORE' | 'ADOPT'
+const reviewActions = ref<Record<string, ReviewAction>>({})
+const reviewApplyInProgress = ref(false)
+const reviewError = ref<string | null>(null)
 
 /** Freeze visible copy for the dialog's close after the parent clears props. */
 const leaveSnapshot = ref<LeaveSnapshot | null>(null)
@@ -520,6 +626,7 @@ watch(
 watch(
   () => props.show,
   (show) => {
+    reviewOpen.value = false
     if (show) {
       leaveSnapshot.value = null
       actionError.value = null
@@ -549,6 +656,12 @@ const viewProblems = computed(() => {
   if (props.show) return props.problems
   return leaveSnapshot.value?.problems ?? props.problems
 })
+const reviewDrifts = computed(
+  () => viewProblems.value.find((problem) => problem.kind === 'parameter_drift')?.drifts ?? [],
+)
+const reviewHasChanges = computed(() =>
+  reviewDrifts.value.some((drift) => reviewActionOf(drift.name) !== 'IGNORE'),
+)
 const problemsSummaryLine = computed(() => problemsSummary(viewProblems.value))
 const anyProblemSelfRecovers = computed(() =>
   allNotableProblemsSelfRecover(viewProblems.value),
@@ -600,6 +713,77 @@ const runForget = async (): Promise<void> => {
     actionInProgress.value = null
   }
 }
+
+const openReview = (): void => {
+  reviewError.value = null
+  reviewActions.value = {}
+  reviewOpen.value = true
+}
+
+const closeReview = (): void => {
+  reviewOpen.value = false
+  reviewActions.value = {}
+  reviewError.value = null
+}
+
+const reviewActionOf = (name: string): ReviewAction => reviewActions.value[name] ?? 'IGNORE'
+
+const setReviewAction = (name: string, action: ReviewAction): void => {
+  reviewActions.value = { ...reviewActions.value, [name]: action }
+}
+
+const reviewActionItems = (adoptable: boolean): { name: ReviewAction; value: ReviewAction; disabled?: boolean }[] => [
+  { name: 'IGNORE', value: 'IGNORE' },
+  { name: 'RESTORE', value: 'RESTORE' },
+  { name: 'ADOPT', value: 'ADOPT', disabled: !adoptable },
+]
+
+const reviewResultText = (drift: { expected: number; actual: number }, action: ReviewAction): string => {
+  if (action === 'RESTORE') return `${drift.expected} written to autopilot`
+  if (action === 'ADOPT') return `${drift.actual} saved in setup`
+  return `${drift.actual} stays on autopilot`
+}
+
+/** Adopts the ADOPT rows first, then restores the RESTORE rows; IGNORE rows are untouched. */
+const runApplyReview = async (): Promise<void> => {
+  const cameraUuid = props.cameraUuid
+  const adoptNames = reviewDrifts.value
+    .map((drift) => drift.name)
+    .filter((name) => reviewActionOf(name) === 'ADOPT')
+  const restoreNames = reviewDrifts.value
+    .map((drift) => drift.name)
+    .filter((name) => reviewActionOf(name) === 'RESTORE')
+  if (!cameraUuid || reviewApplyInProgress.value || !reviewHasChanges.value) return
+
+  reviewApplyInProgress.value = true
+  reviewError.value = null
+  try {
+    if (adoptNames.length > 0) {
+      await backendClient.request('POST', '/autopilot/control', {
+        camera_uuid: cameraUuid,
+        action: 'acceptParameterDrifts',
+        json: adoptNames,
+      })
+      for (const name of adoptNames) setReviewAction(name, 'IGNORE')
+    }
+    if (restoreNames.length > 0) {
+      await backendClient.request('POST', '/autopilot/control', {
+        camera_uuid: cameraUuid,
+        action: 'restoreParameterDrifts',
+        json: restoreNames,
+      })
+    }
+    closeReview()
+  } catch (error) {
+    reviewError.value = `Failed to apply changes: ${formatRequestError(error)}`
+  } finally {
+    reviewApplyInProgress.value = false
+  }
+}
+
+watch(reviewDrifts, (drifts) => {
+  if (drifts.length === 0) closeReview()
+})
 
 const runUpdateLuaScript = async (): Promise<void> => {
   const cameraUuid = props.cameraUuid
