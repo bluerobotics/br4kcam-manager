@@ -94,6 +94,7 @@
     <BlueExpansiblePanel
       title="Actuators"
       :expanded="panelsOpen.actuators"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
       @update:expanded="panelsOpen.actuators = $event"
     >
@@ -208,6 +209,7 @@
     <BlueExpansiblePanel
       title="Video"
       :expanded="panelsOpen.video"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
       @update:expanded="panelsOpen.video = $event"
     >
@@ -265,6 +267,7 @@
     <BlueExpansiblePanel
       title="Hardware setup"
       :expanded="panelsOpen.hardware"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
       @update:expanded="panelsOpen.hardware = $event"
     >
@@ -336,6 +339,7 @@
         <BlueExpansiblePanel
           title="Focus"
           expanded
+          body-class="px-13 pt-4 pb-4"
           theme="dark"
         >
           <BlueSelect
@@ -399,6 +403,7 @@
         <BlueExpansiblePanel
           title="Zoom"
           expanded
+          body-class="px-13 pt-4 pb-4"
           theme="dark"
         >
           <BlueSelect
@@ -451,6 +456,7 @@
         <BlueExpansiblePanel
           title="Script"
           expanded
+          body-class="px-13 pt-4 pb-4"
           theme="dark"
         >
           <BlueSelect
@@ -526,6 +532,7 @@
         <BlueExpansiblePanel
           title="Tilt"
           expanded
+          body-class="px-13 pt-4 pb-4"
           theme="dark"
         >
           <BlueSelect
