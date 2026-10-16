@@ -115,6 +115,8 @@ pub struct ParameterDrift {
     pub expected: f32,
     /// Value currently reported by the autopilot.
     pub actual: f32,
+    /// Whether accepting `actual` saves it into the setup. False when only re-apply restores it.
+    pub adoptable: bool,
 }
 
 /// Support-oriented counters. Never a primary signal; rendered only inside the
