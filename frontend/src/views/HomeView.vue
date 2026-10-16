@@ -170,6 +170,11 @@
       />
     </div>
   </div>
+  <AutopilotRestartDialog
+    :show="pendingAutopilotRestart !== null"
+    @cancel="pendingAutopilotRestart = null"
+    @confirm="confirmAutopilotRestart"
+  />
   <SystemStatusDialog
     :show="showSystemStatusDialog"
     :awaiting-close="healthDialogAwaitingClose"
@@ -233,6 +238,7 @@ import {
 } from '@bluerobotics/bluevue'
 import ImageTab from '@/components/ImageTab.vue'
 import StreamsTab from '@/components/StreamsTab.vue'
+import AutopilotRestartDialog from '@/components/AutopilotRestartDialog.vue'
 import SystemStatusDialog from '@/components/SystemStatusDialog.vue'
 import WarningToast from '@/components/WarningToast.vue'
 import {
@@ -814,15 +820,27 @@ const isCamera = (data: unknown): data is Omit<Camera, 'uuid'> => {
   return typeof camera.hostname === 'string' && isStreamsValid
 }
 
-const updateLuaScript = (): void => {
-  if (!selectedCameraUUID.value) return
+const vehicleArmed = computed(() => systemHealth.value?.vehicle_armed === true)
+const pendingAutopilotRestart = ref<(() => void) | null>(null)
 
+const runLuaScriptUpdate = (): void => {
   if (cameraControls.value) {
     cameraControls.value.updateLuaScript()
     return
   }
 
   runAutopilotControl('exportLuaScript', 'Failed to update Lua script')
+}
+
+const updateLuaScript = (): void => {
+  if (!selectedCameraUUID.value || vehicleArmed.value) return
+  pendingAutopilotRestart.value = runLuaScriptUpdate
+}
+
+const confirmAutopilotRestart = (): void => {
+  const run = pendingAutopilotRestart.value
+  pendingAutopilotRestart.value = null
+  if (run && !vehicleArmed.value) run()
 }
 
 const applyRecommendedCameraSettings = (): void => {
@@ -849,7 +867,8 @@ const toolsMenuItems = computed<BlueMenuItem[]>(() => [
   {
     title: 'Update Lua script',
     icon: 'mdi-script-text-outline',
-    disabled: !backendConnected.value,
+    disabled: !backendConnected.value || vehicleArmed.value,
+    hint: vehicleArmed.value ? 'Disabled while the vehicle is armed' : undefined,
     action: updateLuaScript,
   },
   {
