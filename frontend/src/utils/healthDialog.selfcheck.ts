@@ -107,6 +107,7 @@ function health(overrides: Partial<SystemHealth> = {}): SystemHealth {
     cameras_discovered: 1,
     expected_missing: [],
     autopilot: 'online',
+    vehicle_armed: false,
     lua_scripting_disabled: false,
     lua_script: 'ok',
     diagnostics: DIAGNOSTICS,
