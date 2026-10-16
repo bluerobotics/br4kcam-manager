@@ -1,6 +1,7 @@
 import type {
   AutopilotHealth,
   CameraConnectivity,
+  ParameterDrift,
   SystemHealth,
 } from '@/bindings/br4kcam_api'
 
@@ -27,6 +28,10 @@ export type HealthProblem = {
   showForget?: boolean
   showGoToSetup?: boolean
   showUpdateLuaScript?: boolean
+  /** Opens the per-parameter review where each drift can be accepted. */
+  showReview?: boolean
+  /** Every drifted parameter, for the review table. */
+  drifts?: ParameterDrift[] | null
 }
 
 type KindSpec = {
@@ -135,8 +140,9 @@ const KIND_TABLE = {
     problem: {
       severity: 'warning',
       title: 'Autopilot parameters no longer match saved setup',
-      body: 'Another ground station, a parameter reset, or a loaded parameter file changed values on the autopilot. Autopilot-driven camera controls will not work until you re-apply the configuration.',
+      body: 'Another ground station, a parameter reset, or a loaded parameter file changed values on the autopilot. Autopilot-driven camera controls may not work until you re-apply the configuration.',
       showGoToSetup: true,
+      showReview: true,
     },
   },
 } satisfies Record<HealthProblemKind, KindSpec>
@@ -159,9 +165,6 @@ const SEVERITY_RANK: Record<HealthProblem['severity'], number> = {
   warning: 1,
   info: 2,
 }
-
-/** Max drift lines in the problem detail before summarizing the rest. */
-const PARAMETER_DRIFT_DETAIL_LIMIT = 3
 
 /** MCM re-probes every second while down. */
 const MCM_PROBE_INTERVAL_MS = 1000
@@ -407,19 +410,10 @@ function parameterDriftProblem(health: SystemHealth): HealthProblem | null {
   const drifts = health.parameter_drifts
   if (!drifts?.length) return null
 
-  const lines = drifts.slice(0, PARAMETER_DRIFT_DETAIL_LIMIT).map(
-    (drift) =>
-      `${drift.name}: saved ${drift.expected}, autopilot has ${drift.actual}`,
-  )
-  const remaining = drifts.length - lines.length
-  if (remaining > 0) {
-    lines.push(`…and ${remaining} more`)
-  }
-
   return {
     kind: 'parameter_drift',
     ...KIND_TABLE.parameter_drift.problem,
-    detail: lines.join('\n'),
+    drifts,
   }
 }
 

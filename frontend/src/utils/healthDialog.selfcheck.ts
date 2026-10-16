@@ -135,8 +135,8 @@ function cameraInput(
 function problemCases(): ProblemCase[] {
   const driftHealth = health({
     parameter_drifts: [
-      { name: 'SERVO1_FUNCTION', expected: 33, actual: 0 },
-      { name: 'SERVO2_FUNCTION', expected: 34, actual: 0 },
+      { name: 'SERVO1_FUNCTION', expected: 33, actual: 0, adoptable: false },
+      { name: 'SERVO2_FUNCTION', expected: 34, actual: 0, adoptable: false },
     ],
   })
   const luaScript = (problems: HealthProblem[]) =>
@@ -237,11 +237,12 @@ function problemCases(): ProblemCase[] {
       degraded: true,
       check: (problems) => {
         const problem = drift(problems)
-        return problem?.showGoToSetup === true && problem.severity === 'warning'
-          && problem.detail?.includes('SERVO1_FUNCTION: saved 33, autopilot has 0') === true
-          && problem.body.includes('Autopilot-driven camera controls')
+        return problem?.showGoToSetup === true && problem.showReview === true
+          && problem.severity === 'warning' && problem.detail == null
+          && problem.drifts?.[0]?.name === 'SERVO1_FUNCTION'
+          && problem.body.includes('may not work')
       } },
-    { name: 'parameter drift detail caps the list',
+    { name: 'parameter drift lists every difference for review',
       input: baseInput({
         hardwareConfigured: true,
         systemHealth: health({
@@ -249,10 +250,11 @@ function problemCases(): ProblemCase[] {
             name: `SERVO${index + 1}_FUNCTION`,
             expected: 33 + index,
             actual: 0,
+            adoptable: false,
           })),
         }),
       }),
-      check: (problems) => drift(problems)?.detail?.includes('…and 2 more') === true },
+      check: (problems) => drift(problems)?.drifts?.length === 5 },
     { name: 'parameter drift hidden while autopilot is down',
       input: baseInput({
         hardwareConfigured: true,
