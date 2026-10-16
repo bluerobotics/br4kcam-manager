@@ -172,15 +172,20 @@
             theme="dark"
             @update:model-value="updateActuatorsConfig('enable_focus_and_zoom_correlation', $event)"
           />
-          <BlueSwitch
-            :key="tiltStabilizationSwitchKey"
-            :model-value="tiltStabilizationEnabled"
-            :disabled="actuatorControlsDisabled || tiltStabilizationPending || vehicleArmed"
-            name="tilt-stabilization"
-            label="Stabilize mount"
-            theme="dark"
-            @update:model-value="tiltStabilizationConfirm = $event as boolean"
-          />
+          <BlueTooltip
+            text="Disabled while the vehicle is armed"
+            :disabled="!vehicleArmed"
+          >
+            <BlueSwitch
+              :key="tiltStabilizationSwitchKey"
+              :model-value="tiltStabilizationEnabled"
+              :disabled="actuatorControlsDisabled || tiltStabilizationPending || vehicleArmed"
+              name="tilt-stabilization"
+              label="Stabilize mount"
+              theme="dark"
+              @update:model-value="requestAutopilotRestart(() => updateTiltStabilization($event as boolean))"
+            />
+          </BlueTooltip>
           <!-- <BlueSlider
             v-model="focusOffsetUI"
             :disabled="isConfigured !== true || cameraControlsDisabled"
@@ -306,16 +311,21 @@
           >
             Advanced setup
           </BlueButton>
-          <BlueButton
-            variant="filled"
-            density="compact"
-            :disabled="hardwareSetupControlsDisabled"
-            :loading="props.loading"
-            theme="dark"
-            @click="resetToRecommendedDefaults(false)"
+          <BlueTooltip
+            text="Disabled while the vehicle is armed"
+            :disabled="!vehicleArmed"
           >
-            Apply default hardware setup
-          </BlueButton>
+            <BlueButton
+              variant="filled"
+              density="compact"
+              :disabled="hardwareSetupControlsDisabled || vehicleArmed"
+              :loading="props.loading"
+              theme="dark"
+              @click="resetToRecommendedDefaults(false)"
+            >
+              Apply default hardware setup
+            </BlueButton>
+          </BlueTooltip>
         </div>
       </div>
 
@@ -620,16 +630,21 @@
             >
               Back to simple
             </BlueButton>
-            <BlueButton
-              variant="filled"
-              density="compact"
-              :disabled="hasChannelErrors || hardwareSetupControlsDisabled"
-              :loading="props.loading"
-              theme="dark"
-              @click="saveHardwareSetup"
+            <BlueTooltip
+              text="Disabled while the vehicle is armed"
+              :disabled="!vehicleArmed"
             >
-              Apply custom hardware setup
-            </BlueButton>
+              <BlueButton
+                variant="filled"
+                density="compact"
+                :disabled="hasChannelErrors || hardwareSetupControlsDisabled || vehicleArmed"
+                :loading="props.loading"
+                theme="dark"
+                @click="requestAutopilotRestart(saveHardwareSetup)"
+              >
+                Apply custom hardware setup
+              </BlueButton>
+            </BlueTooltip>
           </div>
         </div>
       </div>
@@ -637,35 +652,11 @@
     </div>
   </div>
 
-  <StatusDialogShell
-    :show="tiltStabilizationConfirm !== null"
-    title="Restart the autopilot?"
-    :persistent="false"
-    :logo="false"
-    @dismiss="closeTiltStabilizationConfirm"
-  >
-    <p class="text-sm text-white text-center">
-      Changing mount stabilization restarts the autopilot. Actuator control is unavailable for about a minute while it comes back.
-    </p>
-    <template #actions>
-      <BlueButton
-        variant="text"
-        density="compact"
-        theme="dark"
-        @click="closeTiltStabilizationConfirm"
-      >
-        Cancel
-      </BlueButton>
-      <BlueButton
-        variant="filled"
-        density="compact"
-        theme="dark"
-        @click="confirmTiltStabilization"
-      >
-        Restart and change
-      </BlueButton>
-    </template>
-  </StatusDialogShell>
+  <AutopilotRestartDialog
+    :show="pendingAutopilotRestart !== null"
+    @cancel="closeAutopilotRestart"
+    @confirm="confirmAutopilotRestart"
+  />
 
   <BlueDialog
     v-model="bitrateInfoOpen"
@@ -736,6 +727,7 @@ import {
   BlueSelect,
   BlueSlider,
   BlueSwitch,
+  BlueTooltip,
 } from '@bluerobotics/bluevue'
 import { type BaseParameterSetting, type VideoParameterSettings, type VideoResolutionValue, BaseAutoWhiteBalanceModeValue, BaseAutoWhiteBalanceSceneValue, type AdvancedParameterSetting, type CameraControl } from '@/bindings/br4kcam'
 import { backendClient } from '@/utils/backendClient'
@@ -751,7 +743,7 @@ import { useCameraState } from '@/utils/useCameraState'
 import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, MountType, ScriptFunction, ServoChannel } from '@/bindings/autopilot'
 import type { CameraStateEvent, OnePushAwbStatus } from '@/bindings/br4kcam_api'
 import WelcomeDialog from './WelcomeDialog.vue'
-import StatusDialogShell from './StatusDialogShell.vue'
+import AutopilotRestartDialog from './AutopilotRestartDialog.vue'
 import {
   autopilotDependentControlsBlocked,
   useSystemHealth,
@@ -1553,8 +1545,8 @@ const tiltStabilizationEnabled = computed(
 )
 const tiltStabilizationPending = ref(false)
 const vehicleArmed = computed(() => systemHealth.value?.vehicle_armed === true)
-// Target value awaiting the user's restart confirmation; null when the dialog is closed.
-const tiltStabilizationConfirm = ref<boolean | null>(null)
+// A UI action that may restart the autopilot waits here until the user confirms.
+const pendingAutopilotRestart = ref<(() => void) | null>(null)
 // BlueSwitch flips its own state on click and only resyncs when its model prop changes, so
 // closing the dialog remounts the switch to show the real value again.
 const tiltStabilizationSwitchKey = ref(0)
@@ -1606,15 +1598,20 @@ const updateTiltStabilization = (enabled: boolean): void => {
     })
 }
 
-const closeTiltStabilizationConfirm = (): void => {
-  tiltStabilizationConfirm.value = null
+const requestAutopilotRestart = (run: () => void): void => {
+  if (vehicleArmed.value) return
+  pendingAutopilotRestart.value = run
+}
+
+const closeAutopilotRestart = (): void => {
+  pendingAutopilotRestart.value = null
   tiltStabilizationSwitchKey.value += 1
 }
 
-const confirmTiltStabilization = (): void => {
-  const enabled = tiltStabilizationConfirm.value
-  closeTiltStabilizationConfirm()
-  if (enabled !== null) updateTiltStabilization(enabled)
+const confirmAutopilotRestart = (): void => {
+  const run = pendingAutopilotRestart.value
+  closeAutopilotRestart()
+  if (run && !vehicleArmed.value) run()
 }
 
 const sendQueuedActuatorState = (param: ActuatorKey, allowWhileDisabled = false): void => {
@@ -2019,7 +2016,14 @@ const saveHardwareSetup = async (): Promise<void> => {
 }
 
 /** `force` re-applies every default even when the saved setup already matches them. */
-const resetToRecommendedDefaults = async (force: boolean): Promise<void> => {
+const resetToRecommendedDefaults = (force: boolean): void => {
+  if (!props.selectedCameraUuid || props.disabled) return
+  requestAutopilotRestart(() => {
+    applyRecommendedDefaults(force)
+  })
+}
+
+const applyRecommendedDefaults = async (force: boolean): Promise<void> => {
   if (!props.selectedCameraUuid || props.disabled) return
 
   const cameraUuid = props.selectedCameraUuid
