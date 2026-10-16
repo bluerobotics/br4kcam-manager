@@ -27,7 +27,7 @@ pub use manager::{clear_saved_settings, init};
 
 use crate::{
     manager::MANAGER,
-    parameters::{ActuatorsParameters, CLOSEST_POINTS, FURTHEST_POINTS},
+    parameters::{ActuatorsParameters, CLOSEST_POINTS, FURTHEST_POINTS, param_display_value},
 };
 
 /// Context message when a camera has no actuators entry yet.
@@ -442,6 +442,78 @@ pub(crate) async fn control_inner(
                 manager::owned_parameters::rebuild().await;
                 manager::owned_parameters::reevaluate_after_apply().await;
             }
+            serde_json::Value::Null
+        }
+        Action::AcceptParameterDrifts(names) => {
+            let camera_uuid = actuators_control.camera_uuid;
+            // Read the autopilot values before MANAGER: lock order is CONFIG_APPLY, MANAGER.
+            let mut autopilot_values = Vec::with_capacity(names.len());
+            {
+                let component = crate::mavlink::component()?;
+                let cache = component.inner.parameters.read().await;
+                for name in names {
+                    let value = cache
+                        .get(name)
+                        .and_then(|parameter| param_display_value(&parameter.value))
+                        .with_context(|| format!("{name} has no value from the autopilot"))?;
+                    autopilot_values.push((name.as_str(), value));
+                }
+            }
+
+            let _apply = manager::CONFIG_APPLY.lock().await;
+            {
+                let mut manager = MANAGER.get().context("Not available")?.write().await;
+                let actuators = manager
+                    .settings
+                    .actuators
+                    .get_mut(&camera_uuid)
+                    .context(ACTUATORS_NOT_CONFIGURED)?;
+                // Adopt all values or none, so one rejected name leaves the saved setup as it was.
+                let mut adopted = actuators.parameters.clone();
+                for (name, value) in autopilot_values {
+                    manager::owned_parameters::adopt_autopilot_value(&mut adopted, name, value)?;
+                }
+                actuators.parameters = adopted;
+            }
+            manager::Manager::save_actuators_settings().await?;
+            drop(_apply);
+            manager::owned_parameters::rebuild().await;
+            manager::owned_parameters::reevaluate_after_apply().await;
+            serde_json::Value::Null
+        }
+        Action::RestoreParameterDrifts(names) => {
+            let camera_uuid = actuators_control.camera_uuid;
+            // Mount and camera types and channel functions only take effect after a reboot,
+            // as in the apply path.
+            let needs_reboot = names
+                .iter()
+                .any(|name| name.ends_with("_TYPE") || name.ends_with("_FUNCTION"));
+            manager::reboot_outside_apply(
+                Box::pin(async {
+                    let mavlink = crate::mavlink::component()?;
+                    let encoding = mavlink.encoding().await;
+                    for name in names {
+                        let expected = manager::owned_parameters::expectations_for_param(name)
+                            .into_iter()
+                            .find(|(owner, _)| *owner == camera_uuid)
+                            .with_context(|| format!("{name} is not part of the saved setup"))?
+                            .1;
+                        let mut parameter = mavlink.get_param(name, false).await?;
+                        parameter.value.set_value(expected, encoding)?;
+                        mavlink
+                            .set_param(parameter)
+                            .await
+                            .with_context(|| format!("Failed restoring {name}"))?;
+                    }
+                    manager::owned_parameters::reevaluate_after_apply().await;
+                    Ok(needs_reboot)
+                }),
+                Box::pin(async {
+                    manager::owned_parameters::reevaluate_after_apply().await;
+                    Ok(())
+                }),
+            )
+            .await?;
             serde_json::Value::Null
         }
     };

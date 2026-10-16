@@ -33,6 +33,12 @@ pub enum Action {
     ForceResetActuatorsConfig,
     #[serde(rename = "forgetActuatorsConfig")]
     ForgetActuatorsConfig,
+    /// Saves the autopilot's current value of each named parameter into the saved setup.
+    #[serde(rename = "acceptParameterDrifts")]
+    AcceptParameterDrifts(Vec<String>),
+    /// Writes the saved value of each named parameter back to the autopilot.
+    #[serde(rename = "restoreParameterDrifts")]
+    RestoreParameterDrifts(Vec<String>),
 }
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone, Copy, TS)]

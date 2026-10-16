@@ -84,6 +84,8 @@ pub struct ParameterDrift {
     pub name: String,
     pub expected: f32,
     pub actual: f32,
+    /// Whether accepting the autopilot value can save it; see `is_adoptable_parameter`.
+    pub adoptable: bool,
 }
 
 impl Default for Health {
@@ -248,6 +250,7 @@ pub(crate) fn observe_owned_parameter_value(
         name: name.to_owned(),
         expected: expected_f,
         actual: actual_f,
+        adoptable: crate::manager::owned_parameters::is_adoptable_parameter(name),
     };
 
     let mut guard = health_state().lock().expect("health lock");

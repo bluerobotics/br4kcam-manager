@@ -3,10 +3,12 @@ use std::{
     sync::{OnceLock, RwLock},
 };
 
+use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use uuid::Uuid;
 
 use crate::{
+    api,
     health::{self, ObserveSource},
     parameters::{ActuatorsParameters, ParamType, Parameter},
 };
@@ -130,6 +132,50 @@ fn push_all_expectations(parameters: &ActuatorsParameters, map: &mut IndexMap<St
     tilt::push_owned_expectations(parameters, map);
 }
 
+/// Whether the saved setup stores this parameter as-is, so the autopilot value can be
+/// adopted. Channel functions and camera types follow from the channel and camera roles,
+/// so only re-applying the hardware setup restores those.
+pub(crate) fn is_adoptable_parameter(name: &str) -> bool {
+    let is_mount_param = name.starts_with("MNT")
+        && (name.ends_with("_TYPE")
+            || name.ends_with("_PITCH_MIN")
+            || name.ends_with("_PITCH_MAX"));
+    let is_script_param = name.starts_with(script::PARAM_PREFIX)
+        && (name.ends_with("_ENABLE") || name.ends_with("_GAIN"));
+    is_mount_param || is_script_param
+}
+
+/// Writes the autopilot's `value` for `name` into the saved setup. Fails for names the saved
+/// setup does not store as-is, and for mount types it has no name for.
+pub(crate) fn adopt_autopilot_value(
+    parameters: &mut ActuatorsParameters,
+    name: &str,
+    value: f32,
+) -> Result<()> {
+    let mount = format!("{:?}", tilt::tilt_mount_id(parameters.camera_id));
+    let channel = parameters.camera_id as u8;
+    if name == format!("{mount}_TYPE") {
+        parameters.tilt_mnt_type = match value as i32 {
+            1 => api::MountType::Servo,
+            7 => api::MountType::BrushlessPWM,
+            other => bail!("{name} is {other}, which has no saved mount type"),
+        };
+    } else if name == format!("{mount}_PITCH_MIN") {
+        parameters.tilt_mnt_pitch_min = value as i32;
+    } else if name == format!("{mount}_PITCH_MAX") {
+        parameters.tilt_mnt_pitch_max = value as i32;
+    } else if name == format!("{}{channel}_ENABLE", script::PARAM_PREFIX) {
+        parameters.enable_focus_and_zoom_correlation = value != 0.0;
+    } else if name == format!("{}{channel}_GAIN", script::PARAM_PREFIX) {
+        parameters.focus_margin_gain = value;
+    } else {
+        bail!(
+            "{name} is derived from the channel setup, re-apply the hardware setup to restore it"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) fn clear_eligibility_for_test() {
     eligible().write().expect("owned eligibility lock").clear();
@@ -151,4 +197,29 @@ pub(crate) fn clear_expectations_for_test() {
         .write()
         .expect("owned expectations lock")
         .clear();
+}
+
+#[cfg(test)]
+mod adopt_tests {
+    use super::*;
+
+    #[test]
+    fn adopt_writes_stored_parameters_and_rejects_derived_ones() {
+        let mut parameters = ActuatorsParameters::default();
+        for (name, value) in [
+            ("MNT1_TYPE", 7.0),
+            ("MNT1_PITCH_MIN", -90.0),
+            ("MNT1_PITCH_MAX", 55.0),
+        ] {
+            assert!(is_adoptable_parameter(name));
+            adopt_autopilot_value(&mut parameters, name, value).unwrap();
+        }
+        assert_eq!(parameters.tilt_mnt_type, api::MountType::BrushlessPWM);
+        assert_eq!(parameters.tilt_mnt_pitch_min, -90);
+        assert_eq!(parameters.tilt_mnt_pitch_max, 55);
+
+        assert!(adopt_autopilot_value(&mut parameters, "MNT1_TYPE", 3.0).is_err());
+        assert!(!is_adoptable_parameter("SERVO16_FUNCTION"));
+        assert!(adopt_autopilot_value(&mut parameters, "SERVO16_FUNCTION", 0.0).is_err());
+    }
 }
