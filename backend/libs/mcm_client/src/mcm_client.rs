@@ -82,6 +82,8 @@ impl MCMClient {
                 source.name.eq("HDIPC - IPCamera (IPCamera)")
                 // Firmware >= v13
                     || source.name.eq("UnderwaterCam - IPCamera (UnderwaterCam)")
+                // Firmware >= v17
+                    || source.name.eq("HDIPC - RadCam (IPCamera)")
             })
             .collect();
 
@@ -117,8 +119,12 @@ impl MCMClient {
                 let is_new_firmware = name.eq("UnderwaterCam - IPCamera (UnderwaterCam)")
                     && model.eq("UnderwaterCam")
                     && manufacturer.eq("IPCamera");
+                // Firmware >= v17
+                let is_radcam_firmware = name.eq("HDIPC - RadCam (IPCamera)")
+                    && model.eq("HDIPC")
+                    && manufacturer.eq("RadCam");
 
-                if !(is_old_firmware || is_new_firmware) {
+                if !(is_old_firmware || is_new_firmware || is_radcam_firmware) {
                     return None;
                 }
 
