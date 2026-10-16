@@ -21,7 +21,7 @@ pub use actuators_watch::{
 pub use health::{
     ParameterDrift, diagnostics, health, lua_script_status, lua_scripting_disabled,
     needs_mavlink_endpoint_ensure, parameter_drifts, report_endpoint_setup, rpc_failed, rpc_ok,
-    set_backend_version, set_rebooting, set_syncing, subscribe_health,
+    set_backend_version, set_rebooting, set_syncing, subscribe_health, vehicle_armed,
 };
 pub use manager::{clear_saved_settings, init};
 

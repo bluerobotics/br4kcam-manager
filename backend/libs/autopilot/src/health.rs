@@ -7,7 +7,9 @@ use std::{
     time::{Duration, Instant}, // std::time::Instant: sync health_state under Mutex
 };
 
-use ::mavlink::ardupilotmega::{MavComponent, MavMessage, MavSeverity, STATUSTEXT_DATA};
+use ::mavlink::ardupilotmega::{
+    MavComponent, MavMessage, MavModeFlag, MavSeverity, STATUSTEXT_DATA,
+};
 use br4kcam_api::{AutopilotHealth, Diagnostics, LuaScriptStatus};
 use indexmap::IndexMap;
 use once_cell::sync::OnceCell;
@@ -53,6 +55,7 @@ struct Health {
     last_rpc_error: Option<String>,
     servo_stalled: bool,
     syncing: bool,
+    armed: bool,
     rebooting: bool,
     lua_scripting_disabled: bool,
     lua_scripting_disabled_logged: bool,
@@ -101,6 +104,7 @@ impl Default for Health {
             last_rpc_error: None,
             servo_stalled: false,
             syncing: false,
+            armed: false,
             rebooting: false,
             lua_scripting_disabled: false,
             lua_scripting_disabled_logged: false,
@@ -131,6 +135,12 @@ pub fn needs_mavlink_endpoint_ensure() -> bool {
         AutopilotHealth::MavlinkDown => guard.ever_online || guard.last_frame_at.is_some(),
         _ => false,
     }
+}
+
+/// Whether the autopilot's latest heartbeat reports the vehicle armed.
+pub fn vehicle_armed() -> bool {
+    ensure_started();
+    health_state().lock().expect("health lock").armed
 }
 
 /// True when `SCR_ENABLE` is known and not 1.
@@ -454,7 +464,11 @@ async fn frame_drain_task() {
                         // Do not require ACTIVE/STANDBY: ArduSub/ArduPilot often report
                         // CRITICAL/CALIBRATING/etc while still fully operational, and that
                         // filter left health stuck on AutopilotOffline despite live SERVO.
-                        MavMessage::HEARTBEAT(_) => stamp_heartbeat(),
+                        MavMessage::HEARTBEAT(heartbeat) => stamp_heartbeat(
+                            heartbeat
+                                .base_mode
+                                .contains(MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED),
+                        ),
                         MavMessage::STATUSTEXT(status) => note_statustext(&status),
                         _ => {}
                     }
@@ -479,9 +493,13 @@ fn stamp_frame() {
     guard.last_frame_at = Some(Instant::now());
 }
 
-fn stamp_heartbeat() {
+fn stamp_heartbeat(armed: bool) {
     let mut guard = health_state().lock().expect("health lock");
     guard.last_heartbeat_at = Some(Instant::now());
+    if guard.armed != armed {
+        guard.armed = armed;
+        notify_health();
+    }
 }
 
 fn note_statustext(status: &STATUSTEXT_DATA) {
