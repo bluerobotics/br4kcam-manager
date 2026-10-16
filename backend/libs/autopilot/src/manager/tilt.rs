@@ -136,7 +136,70 @@ impl Manager {
 
         Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, force_apply).await?;
         Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, force_apply).await?;
+        Self::update_tilt_channel_reversed(camera_uuid, parameters, force_apply).await?;
         Self::update_tilt_mnt_type(camera_uuid, parameters, force_apply).await
+    }
+
+    #[instrument(level = "debug", skip(parameters))]
+    async fn update_tilt_channel_reversed(
+        camera_uuid: &Uuid,
+        parameters: &api::ActuatorsParametersConfig,
+        force_apply: bool,
+    ) -> Result<()> {
+        let (param_name, new_value, old_value) = {
+            let mut manager = crate::manager::MANAGER
+                .get()
+                .context("Not available")?
+                .write()
+                .await;
+            let current_parameters = &mut manager
+                .settings
+                .actuators
+                .entry(*camera_uuid)
+                .or_default()
+                .parameters;
+            let channel = current_parameters.tilt_channel as u8;
+            let param_name = format!("SERVO{channel}_REVERSED");
+            let new_value = match (parameters.tilt_channel_reversed, force_apply) {
+                (Some(value), _) => value,
+                (None, true) => current_parameters.tilt_channel_reversed,
+                (None, false) => return Ok(()),
+            };
+            (
+                param_name,
+                new_value,
+                current_parameters.tilt_channel_reversed,
+            )
+        };
+
+        if old_value == new_value && !force_apply {
+            trace!("Parameter {param_name:?} skipped");
+            return Ok(());
+        }
+
+        let mavlink = crate::mavlink::component()?;
+        let encoding = mavlink.encoding().await;
+        let mut param = mavlink.get_param(&param_name, false).await?;
+        param
+            .value
+            .set_value(ParamType::UINT8(new_value as u8), encoding)?;
+        mavlink
+            .set_param(param)
+            .await
+            .context("Failed setting tilt channel reversed parameter")?;
+
+        if old_value != new_value {
+            info!("tilt_channel_reversed changed from {old_value} to {new_value}");
+        }
+        let mut manager = crate::manager::MANAGER
+            .get()
+            .context("Not available")?
+            .write()
+            .await;
+        if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
+            actuators.parameters.tilt_channel_reversed = new_value;
+        }
+        Ok(())
     }
 
     fn tilt_channel_function(camera_id: api::CameraID) -> ChannelFunction {
@@ -155,6 +218,17 @@ impl Manager {
         map.insert(
             format!("SERVO{channel}_FUNCTION"),
             ParamType::INT16(function as i16),
+        );
+    }
+
+    fn expect_owned_tilt_servo_reversed(
+        parameters: &ActuatorsParameters,
+        map: &mut IndexMap<String, ParamType>,
+    ) {
+        let channel = parameters.tilt_channel as u8;
+        map.insert(
+            format!("SERVO{channel}_REVERSED"),
+            ParamType::UINT8(parameters.tilt_channel_reversed as u8),
         );
     }
 
@@ -288,6 +362,7 @@ pub(super) fn push_owned_expectations(
     map: &mut IndexMap<String, ParamType>,
 ) {
     Manager::expect_owned_tilt_servo_function(parameters, map);
+    Manager::expect_owned_tilt_servo_reversed(parameters, map);
     Manager::expect_owned_tilt_mnt_pitch_min(parameters, map);
     Manager::expect_owned_tilt_mnt_pitch_max(parameters, map);
     Manager::expect_owned_tilt_mnt_type(parameters, map);
