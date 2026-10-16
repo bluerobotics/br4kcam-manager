@@ -307,6 +307,7 @@ pub(crate) async fn system_health() -> SystemHealth {
                 name: drift.name,
                 expected: drift.expected,
                 actual: drift.actual,
+                adoptable: drift.adoptable,
             })
             .collect();
         (!drifts.is_empty()).then_some(drifts)
@@ -503,6 +504,7 @@ mod tests {
                     name: "SERVO1_FUNCTION".into(),
                     expected: 33.0,
                     actual: 0.0,
+                    adoptable: false,
                 }]),
                 diagnostics: Diagnostics::default(),
                 state_events_lagged: 0,
