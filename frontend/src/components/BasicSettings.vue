@@ -27,6 +27,7 @@
     <BlueExpansiblePanel
       title="Image"
       :expanded="panelsOpen.image"
+      body-class="px-13 pt-4 pb-4"
       theme="dark"
       @update:expanded="panelsOpen.image = $event"
     >
@@ -158,12 +159,12 @@
       <BlueExpansiblePanel
         title="more"
         header-align="end"
-        body-class="pt-4 pb-8"
+        body-class="pt-4 pb-0"
         :expanded="panelsOpen.actuatorsMore"
         theme="dark"
         @update:expanded="panelsOpen.actuatorsMore = $event"
       >
-        <div class="flex flex-col gap-2">
+        <div class="flex flex-col gap-[15px]">
           <BlueSwitch
             v-model="currentFocusAndZoomParams.enable_focus_and_zoom_correlation"
             :disabled="actuatorControlsDisabled"
