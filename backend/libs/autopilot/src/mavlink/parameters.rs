@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 use tracing::*;
 
 use crate::{
+    health::ObserveSource,
     mavlink::{ComponentInner, MavlinkComponent, connection::Message},
     parameters::Parameter,
 };
@@ -240,7 +241,7 @@ impl MavlinkComponent {
 
         *inner.parameters.write().await = parameters;
         let cache = inner.parameters.read().await;
-        crate::manager::owned_parameters::establish_baseline_from_cache(&cache);
+        crate::manager::owned_parameters::observe_cached(&cache, ObserveSource::BulkSync);
     }
 
     #[instrument(level = "debug", skip(inner))]

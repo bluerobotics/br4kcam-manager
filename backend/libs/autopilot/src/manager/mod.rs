@@ -22,6 +22,7 @@ use settings::MANAGER as SETTINGS_MANAGER;
 use crate::{
     CameraActuators,
     api::{self, ServoChannel},
+    health::ObserveSource,
     mavlink::{self, MavlinkComponent},
     parameters::ActuatorsParameters,
 };
@@ -381,7 +382,7 @@ pub async fn init(
     if let Ok(component) = mavlink::component() {
         owned_parameters::rebuild().await;
         let cache = component.inner.parameters.read().await;
-        owned_parameters::establish_baseline_from_cache(&cache);
+        owned_parameters::observe_cached(&cache, ObserveSource::BulkSync);
         crate::health::refresh_lua_script_status().await;
         return Ok(());
     }
@@ -429,7 +430,7 @@ pub async fn clear_saved_settings() -> Result<()> {
     owned_parameters::rebuild().await;
     if let Ok(component) = mavlink::component() {
         let cache = component.inner.parameters.read().await;
-        owned_parameters::establish_baseline_from_cache(&cache);
+        owned_parameters::observe_cached(&cache, ObserveSource::BulkSync);
     }
 
     Ok(())
