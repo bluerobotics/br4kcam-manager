@@ -219,6 +219,8 @@ pub(crate) fn clear_stale_parameter_drifts(expected: &HashSet<(Uuid, String)>) {
 pub(crate) enum ObserveSource {
     /// Full parameter download at connect or after reboot: establish eligibility only.
     BulkSync,
+    /// First download after connecting: report every mismatch, never used after an apply reboot.
+    Connect,
     /// `PARAM_VALUE` broadcast after bulk sync: report drift when eligible.
     LiveChange,
     /// Post-apply re-evaluation: clear stale drifts, never report new ones.
@@ -243,8 +245,13 @@ pub(crate) fn observe_owned_parameter_value(
         return;
     }
 
-    let report = matches!(source, ObserveSource::LiveChange)
-        && crate::manager::owned_parameters::is_eligible(camera_uuid, name);
+    let report = match source {
+        ObserveSource::Connect => true,
+        ObserveSource::LiveChange => {
+            crate::manager::owned_parameters::is_eligible(camera_uuid, name)
+        }
+        ObserveSource::BulkSync | ObserveSource::AfterApply => false,
+    };
     if !report {
         return;
     }
@@ -893,6 +900,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn connect_reports_a_mismatch_that_bulk_sync_keeps_silent() {
+        let _health_tests = lock_health_tests().await;
+        health_reset();
+        let expected = ParamType::UINT16(1500);
+        let actual = ParamType::UINT16(1600);
+
+        let after_reboot = Uuid::from_u128(20);
+        observe_owned_parameter_value(
+            &after_reboot,
+            "SERVO10_MIN",
+            &actual,
+            &expected,
+            ObserveSource::BulkSync,
+        );
+        assert!(parameter_drifts().is_empty());
+
+        let first_connect = Uuid::from_u128(21);
+        observe_owned_parameter_value(
+            &first_connect,
+            "SERVO10_MIN",
+            &actual,
+            &expected,
+            ObserveSource::Connect,
+        );
+        assert_eq!(parameter_drifts().len(), 1);
+        assert_eq!(parameter_drifts()[0].actual, 1600.0);
+    }
+
+    #[tokio::test]
     async fn parameter_drift_eligibility_and_observe_sources() {
         let _health_tests = lock_health_tests().await;
         health_reset();
@@ -986,7 +1022,7 @@ mod tests {
                 value: expected_function,
             },
         );
-        crate::manager::owned_parameters::establish_baseline_from_cache(&cache);
+        crate::manager::owned_parameters::observe_cached(&cache, ObserveSource::BulkSync);
         assert!(crate::manager::owned_parameters::is_eligible(
             &camera_uuid,
             &param_name

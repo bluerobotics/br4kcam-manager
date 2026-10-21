@@ -72,10 +72,6 @@ pub(crate) fn expectations_for_param(name: &str) -> Vec<(Uuid, ParamType)> {
         .collect()
 }
 
-pub(crate) fn establish_baseline_from_cache(cache: &IndexMap<String, Parameter>) {
-    observe_cached(cache, ObserveSource::BulkSync);
-}
-
 pub(crate) async fn reevaluate_after_apply() {
     let Ok(component) = crate::mavlink::component() else {
         return;
@@ -84,7 +80,7 @@ pub(crate) async fn reevaluate_after_apply() {
     observe_cached(&cache, ObserveSource::AfterApply);
 }
 
-fn observe_cached(cache: &IndexMap<String, Parameter>, source: ObserveSource) {
+pub(crate) fn observe_cached(cache: &IndexMap<String, Parameter>, source: ObserveSource) {
     let expectations = expectations().read().expect("owned expectations lock");
     for (camera_uuid, per_camera) in expectations.iter() {
         for (name, expected) in per_camera {

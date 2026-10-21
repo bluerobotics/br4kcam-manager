@@ -16,6 +16,7 @@ use tokio::sync::{RwLock, broadcast};
 use tracing::*;
 
 use crate::{
+    health::ObserveSource,
     mavlink::{connection::Connection, parameters::ParamEncodingType},
     parameters::{ParamType, Parameter},
 };
@@ -64,6 +65,10 @@ impl MavlinkComponent {
         crate::health::set_syncing(true);
         crate::manager::owned_parameters::rebuild().await;
         Self::update_all_params(inner.clone()).await;
+        {
+            let cache = inner.parameters.read().await;
+            crate::manager::owned_parameters::observe_cached(&cache, ObserveSource::Connect);
+        }
         crate::health::set_syncing(false);
 
         let params_sync_task_handle = tokio::spawn(Self::params_sync_task(inner.clone()));
