@@ -374,6 +374,8 @@ pub(crate) async fn control_inner(
         }
         Action::SetActuatorsConfig(new_config) => {
             let camera_uuid = actuators_control.camera_uuid;
+            // Overwrite when the camera has no saved setup yet.
+            let overwrite = saved_actuators_config(camera_uuid).await?.is_none();
             let new_config = {
                 let manager = MANAGER.get().context("Not available")?.read().await;
                 let base_config = manager
@@ -387,7 +389,7 @@ pub(crate) async fn control_inner(
 
             manager::reboot_outside_apply(
                 Box::pin(async {
-                    manager::Manager::update_config(&camera_uuid, &new_config, false).await
+                    manager::Manager::update_config(&camera_uuid, &new_config, overwrite).await
                 }),
                 Box::pin(async {
                     manager::Manager::finalize_config_after_reboot(
