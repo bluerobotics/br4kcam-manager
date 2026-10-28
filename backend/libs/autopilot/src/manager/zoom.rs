@@ -105,6 +105,16 @@ impl Manager {
                             );
                         }
                     }
+                } else {
+                    // Already held, the role still moves to this channel.
+                    let mut manager = crate::manager::MANAGER
+                        .get()
+                        .context("Not available")?
+                        .write()
+                        .await;
+                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
+                        actuators.parameters.zoom_channel = *channel;
+                    }
                 }
             }
         }

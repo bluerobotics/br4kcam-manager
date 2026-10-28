@@ -114,14 +114,18 @@ impl Manager {
                             );
                         }
                     }
-                } else if let Some(script_function) = parameters.script_function {
+                } else {
+                    // Already held, the role still moves to this channel.
                     let mut manager = crate::manager::MANAGER
                         .get()
                         .context("Not available")?
                         .write()
                         .await;
                     if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                        actuators.parameters.script_function = script_function;
+                        actuators.parameters.focus_channel = *channel;
+                        if let Some(script_function) = parameters.script_function {
+                            actuators.parameters.script_function = script_function;
+                        }
                     }
                 }
             }
