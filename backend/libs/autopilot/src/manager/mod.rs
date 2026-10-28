@@ -7,6 +7,8 @@ mod script;
 mod tilt;
 mod zoom;
 
+use std::collections::HashSet;
+
 use ::mavlink::ardupilotmega::SERVO_OUTPUT_RAW_DATA;
 use anyhow::{Context, Result};
 use futures::future::BoxFuture;
@@ -267,20 +269,22 @@ impl Manager {
         let mut autopilot_reboot_required = overwrite;
 
         if let Some(parameters) = &new_config.parameters {
-            autopilot_reboot_required |=
-                Self::update_camera_parameters(camera_uuid, parameters, overwrite).await?;
+            let kept = Self::kept_parameters(camera_uuid, parameters).await?;
 
             autopilot_reboot_required |=
-                Self::update_script_parameters(camera_uuid, parameters, overwrite).await?;
+                Self::update_camera_parameters(camera_uuid, parameters, overwrite, &kept).await?;
 
             autopilot_reboot_required |=
-                Self::update_focus_parameters(camera_uuid, parameters, overwrite).await?;
+                Self::update_script_parameters(camera_uuid, parameters, overwrite, &kept).await?;
 
             autopilot_reboot_required |=
-                Self::update_zoom_parameters(camera_uuid, parameters, overwrite).await?;
+                Self::update_focus_parameters(camera_uuid, parameters, overwrite, &kept).await?;
 
             autopilot_reboot_required |=
-                Self::update_tilt_parameters(camera_uuid, parameters, overwrite).await?;
+                Self::update_zoom_parameters(camera_uuid, parameters, overwrite, &kept).await?;
+
+            autopilot_reboot_required |=
+                Self::update_tilt_parameters(camera_uuid, parameters, overwrite, &kept).await?;
         }
 
         let mut reload_script = overwrite;
@@ -320,6 +324,35 @@ impl Manager {
         owned_parameters::rebuild().await;
         owned_parameters::reevaluate_after_apply().await;
         Ok(false)
+    }
+
+    /// Parameters the camera's setup once `parameters` apply, or another camera's setup,
+    /// uses. A channel or camera id the camera moves away from is not turned off when it is
+    /// one of them, e.g. on a swap of two channels or a channel shared with another camera.
+    async fn kept_parameters(
+        camera_uuid: &Uuid,
+        parameters: &api::ActuatorsParametersConfig,
+    ) -> Result<HashSet<String>> {
+        let manager = MANAGER.get().context("Not available")?.read().await;
+        let current = manager
+            .settings
+            .actuators
+            .get(camera_uuid)
+            .map(|actuators| actuators.parameters.clone())
+            .unwrap_or_default();
+        let next = ActuatorsParameters::from(
+            merge_struct::merge(&api::ActuatorsParametersConfig::from(&current), parameters)
+                .context("Failing to merge structs")?,
+        );
+
+        let mut kept = IndexMap::new();
+        owned_parameters::push_all_expectations(&next, &mut kept);
+        for (uuid, actuators) in &manager.settings.actuators {
+            if uuid != camera_uuid {
+                owned_parameters::push_all_expectations(&actuators.parameters, &mut kept);
+            }
+        }
+        Ok(kept.into_keys().collect())
     }
 
     /// Post-reboot enable/gain push and settings save. Caller must hold [`CONFIG_APPLY`].

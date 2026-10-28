@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use settings::TiltChannelFunction;
@@ -18,11 +20,13 @@ pub(super) fn tilt_mount_id(camera_id: api::CameraID) -> TiltChannelFunction {
 }
 
 impl Manager {
-    #[instrument(level = "debug", skip(parameters))]
+    /// The old channel is only turned off when nothing in `kept` uses it.
+    #[instrument(level = "debug", skip(parameters, kept))]
     pub async fn update_tilt_parameters(
         camera_uuid: &Uuid,
         parameters: &api::ActuatorsParametersConfig,
         overwrite: bool,
+        kept: &HashSet<String>,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
 
@@ -51,7 +55,9 @@ impl Manager {
             let encoding = mavlink.encoding().await;
 
             // Disables the old tilt_channel:
-            if &old_channel != channel {
+            if &old_channel != channel
+                && !kept.contains(&format!("SERVO{}_FUNCTION", old_channel as u8))
+            {
                 let param_name = format!("SERVO{}_FUNCTION", old_channel as u8);
 
                 let mut param = mavlink.get_param(&param_name, false).await?;
