@@ -55,6 +55,8 @@ pub enum LuaScriptStatus {
     /// firmware upgrade that changed a scripting API reaches the user this way.
     /// The message is in [`SystemHealth::lua_script_detail`].
     Failing,
+    /// Every configured camera has a fixed-focus lens, so no script is needed.
+    NotNeeded,
 }
 
 /// Health of the 4K Cam Manager to Mavlink Camera Manager link.
@@ -184,7 +186,8 @@ pub struct SystemHealth {
     pub autopilot_detail: Option<String>,
     /// True while the autopilot reports the vehicle armed.
     pub vehicle_armed: bool,
-    /// True when `SCR_ENABLE` is known and not 1: focus/zoom correlation is inert.
+    /// True when `SCR_ENABLE` is known and not 1 while a camera with a motorized lens is
+    /// configured: focus/zoom correlation is inert.
     pub lua_scripting_disabled: bool,
     /// Whether the installed Lua script matches this configuration.
     pub lua_script: LuaScriptStatus,
@@ -519,6 +522,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&AutopilotHealth::Syncing).unwrap(),
             r#""syncing""#
+        );
+        assert_eq!(
+            serde_json::to_string(&LuaScriptStatus::NotNeeded).unwrap(),
+            r#""not_needed""#
         );
 
         let health = SystemHealth::default();
