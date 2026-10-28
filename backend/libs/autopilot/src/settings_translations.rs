@@ -26,6 +26,7 @@ impl From<&CameraActuators> for settings::CameraActuatorsSettings {
 impl From<&settings::ActuatorsParameters> for parameters::ActuatorsParameters {
     fn from(value: &settings::ActuatorsParameters) -> Self {
         Self {
+            lens: (&value.lens).into(),
             camera_id: (&value.camera_id).into(),
             focus_channel: (&value.focus_channel).into(),
             focus_channel_min: value.focus_channel_min,
@@ -56,6 +57,7 @@ impl From<&settings::ActuatorsParameters> for parameters::ActuatorsParameters {
 impl From<&parameters::ActuatorsParameters> for settings::ActuatorsParameters {
     fn from(value: &parameters::ActuatorsParameters) -> Self {
         settings::ActuatorsParameters {
+            lens: (&value.lens).into(),
             camera_id: (&value.camera_id).into(),
             focus_channel: (&value.focus_channel).into(),
             focus_channel_min: value.focus_channel_min,
@@ -202,6 +204,23 @@ impl From<&api::ScriptFunction> for settings::ScriptFunction {
             api::ScriptFunction::SCRIPT14 => Self::SCRIPT14,
             api::ScriptFunction::SCRIPT15 => Self::SCRIPT15,
             api::ScriptFunction::SCRIPT16 => Self::SCRIPT16,
+        }
+    }
+}
+
+impl From<&settings::LensType> for api::LensType {
+    fn from(value: &settings::LensType) -> Self {
+        match value {
+            settings::LensType::Motorized => Self::Motorized,
+            settings::LensType::FixedFocus => Self::FixedFocus,
+        }
+    }
+}
+impl From<&api::LensType> for settings::LensType {
+    fn from(value: &api::LensType) -> Self {
+        match value {
+            api::LensType::Motorized => Self::Motorized,
+            api::LensType::FixedFocus => Self::FixedFocus,
         }
     }
 }

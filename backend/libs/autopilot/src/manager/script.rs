@@ -52,6 +52,9 @@ impl Manager {
                 .actuators
                 .get(camera_uuid)
                 .context(crate::ACTUATORS_NOT_CONFIGURED)?;
+            if !camera_actuators.parameters.has_motorized_lens() {
+                anyhow::bail!("A fixed-focus lens needs no Lua script");
+            }
 
             (
                 generate_checked_lua_script(camera_actuators)?,
@@ -100,25 +103,37 @@ impl Manager {
     /// ponytail: one script file backs every configured camera, so with more than one
     /// configured this passes as soon as any of them matches. Upgrade path is one file
     /// per camera, which the autopilot scripts folder already supports.
+    ///
+    /// Cameras with a fixed-focus lens need no script, so with only those configured
+    /// this is [`LuaScriptStatus::NotNeeded`].
     #[instrument(level = "debug")]
     pub async fn script_status() -> LuaScriptStatus {
         let Some(manager) = crate::manager::MANAGER.get() else {
             return LuaScriptStatus::Unknown;
         };
 
-        let (path, expected) = {
+        let (path, any_configured, expected) = {
             let manager = manager.read().await;
             let expected: Vec<String> = manager
                 .settings
                 .actuators
                 .values()
+                .filter(|actuators| actuators.parameters.has_motorized_lens())
                 .filter_map(|actuators| generate_lua_script(actuators).ok())
                 .collect();
-            (manager.autopilot_scripts_file.clone(), expected)
+            (
+                manager.autopilot_scripts_file.clone(),
+                !manager.settings.actuators.is_empty(),
+                expected,
+            )
         };
 
         if expected.is_empty() {
-            return LuaScriptStatus::Unknown;
+            return if any_configured {
+                LuaScriptStatus::NotNeeded
+            } else {
+                LuaScriptStatus::Unknown
+            };
         }
 
         remove_conflicting_owned_scripts(std::path::Path::new(&path)).await;
@@ -230,7 +245,8 @@ impl Manager {
             (
                 actuators.parameters.script_channel,
                 actuators.parameters.focus_channel,
-                actuators.parameters.enable_focus_and_zoom_correlation,
+                actuators.parameters.has_motorized_lens()
+                    && actuators.parameters.enable_focus_and_zoom_correlation,
             )
         };
 

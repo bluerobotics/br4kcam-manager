@@ -168,6 +168,12 @@ impl Manager {
             COMMAND_LONG_DATA, CameraZoomType, MavCmd, MavMountMode, SetFocusType,
         };
 
+        if !parameters.has_motorized_lens()
+            && (new_state.focus.is_some() || new_state.zoom.is_some())
+        {
+            anyhow::bail!("A fixed-focus lens has no focus or zoom to control");
+        }
+
         let mavlink = crate::mavlink::component()?;
 
         if let Some(tilt) = new_state.tilt {
@@ -274,19 +280,19 @@ impl Manager {
         Self::execute(camera_uuid, plan).await
     }
 
-    /// Replace the camera's setup with the defaults and write all of it.
+    /// Replace the camera's setup with the defaults for `lens` and write all of it.
     ///
     /// Caller must hold [`CONFIG_APPLY`]. Returns like [`Self::update_config`].
     #[instrument(level = "debug")]
-    pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
-        let config = api::ActuatorsConfig::from(&CameraActuators::default());
+    pub async fn reset_config(camera_uuid: &Uuid, lens: api::LensType) -> Result<bool> {
+        let config = api::ActuatorsConfig::from(&CameraActuators::default_for(lens));
         let snapshot = plan::Snapshot::capture().await?;
         let plan = plan::plan_apply(
             &snapshot,
             *camera_uuid,
             &config,
             true,
-            plan::Start::Defaults,
+            plan::Start::Defaults(lens),
         )?;
         Self::execute(camera_uuid, plan).await
     }
@@ -294,7 +300,7 @@ impl Manager {
     /// Carry out `plan` for the camera. Returns `true` if the autopilot must be rebooted
     /// before [`Self::finalize_config_after_reboot`].
     async fn execute(camera_uuid: &Uuid, plan: plan::ApplyPlan) -> Result<bool> {
-        for write in &plan.writes {
+        for write in plan.releases.iter().chain(&plan.writes) {
             Self::write_param(write).await?;
         }
 
@@ -313,8 +319,11 @@ impl Manager {
             actuators.furthest_points = plan.next.furthest_points.clone();
             manager.autopilot_scripts_file.clone()
         };
-        if let plan::ScriptAction::Write(contents) = &plan.script {
-            Self::write_script_file(&path, contents).await?;
+        match &plan.script {
+            // A lens change can still change what the status expects.
+            plan::ScriptAction::Keep => crate::health::refresh_lua_script_status().await,
+            plan::ScriptAction::Write(contents) => Self::write_script_file(&path, contents).await?,
+            plan::ScriptAction::Delete => Self::delete_script_file(&path).await?,
         }
 
         if plan.reboot {
@@ -362,16 +371,16 @@ impl Manager {
     /// the script runs. Caller must hold [`CONFIG_APPLY`].
     #[instrument(level = "debug")]
     pub async fn finalize_config_after_reboot(camera_uuid: &Uuid) -> Result<()> {
-        let parameters = {
-            let manager = MANAGER.get().context("Not available")?.read().await;
-            manager
-                .settings
-                .actuators
-                .get(camera_uuid)
-                .map(|actuators| actuators.parameters.clone())
-        };
+        // The script serves this camera, or another motorized camera it was handed to when
+        // this one turned fixed-focus. Unmatched, a motorized camera keeps its own.
+        let snapshot = plan::Snapshot::capture().await?;
+        let parameters = plan::script_camera(&snapshot, *camera_uuid)?
+            .and_then(|uuid| snapshot.saved.get(&uuid))
+            .or_else(|| snapshot.saved.get(camera_uuid))
+            .map(|actuators| &actuators.parameters)
+            .filter(|parameters| parameters.has_motorized_lens());
         if let Some(parameters) = parameters {
-            for write in script::param_writes(&parameters, &parameters, true) {
+            for write in script::param_writes(parameters, parameters, true) {
                 Self::write_param(&write).await?;
             }
         }
@@ -503,12 +512,14 @@ fn percentage_within_range(value: u16, min: u16, max: u16) -> f32 {
 ///
 /// When `enable_focus_and_zoom_correlation` is set, focus is read from the script
 /// channel instead of the dedicated focus channel. Each axis is `None` when its
-/// channel is unmapped.
+/// channel is unmapped, and focus and zoom are `None` for a fixed-focus lens.
 pub(crate) fn actuators_state_from_servo(
     actuators: &CameraActuators,
     servo_output_raw: &SERVO_OUTPUT_RAW_DATA,
 ) -> api::ActuatorsState {
-    let focus = {
+    let motorized = actuators.parameters.has_motorized_lens();
+
+    let focus = motorized.then(|| {
         let (channel, min, max) = if actuators.parameters.enable_focus_and_zoom_correlation {
             (
                 actuators.parameters.script_channel,
@@ -525,16 +536,16 @@ pub(crate) fn actuators_state_from_servo(
 
         get_output_raw_from_channel(servo_output_raw, channel)
             .map(|value| percentage_within_range(value, min, max))
-    };
+    });
 
-    let zoom = {
+    let zoom = motorized.then(|| {
         let channel = actuators.parameters.zoom_channel;
         let min = actuators.parameters.zoom_channel_min;
         let max = actuators.parameters.zoom_channel_max;
 
         get_output_raw_from_channel(servo_output_raw, channel)
             .map(|value| percentage_within_range(value, min, max))
-    };
+    });
 
     let tilt = {
         let channel = actuators.parameters.tilt_channel;
@@ -545,5 +556,9 @@ pub(crate) fn actuators_state_from_servo(
             .map(|value| percentage_within_range(value, min, max))
     };
 
-    api::ActuatorsState { focus, zoom, tilt }
+    api::ActuatorsState {
+        focus: focus.flatten(),
+        zoom: zoom.flatten(),
+        tilt,
+    }
 }

@@ -27,14 +27,18 @@ pub enum Action {
     GetActuatorsConfig,
     #[serde(rename = "setActuatorsConfig")]
     SetActuatorsConfig(ActuatorsConfig),
+    /// Applies the default setup for the given lens, or for the saved lens when omitted.
     #[serde(rename = "resetActuatorsConfig")]
-    ResetActuatorsConfig,
+    ResetActuatorsConfig(Option<LensType>),
     #[serde(rename = "forceResetActuatorsConfig")]
-    ForceResetActuatorsConfig,
-    /// Lists the settings a non-forced default setup would change, without writing anything.
-    /// An empty list means that apply will not reboot the autopilot.
+    ForceResetActuatorsConfig(Option<LensType>),
+    /// What a non-forced default setup for the given lens would change, without writing
+    /// anything. An empty preview means that apply will not reboot the autopilot.
     #[serde(rename = "previewResetActuatorsConfig")]
-    PreviewResetActuatorsConfig,
+    PreviewResetActuatorsConfig(Option<LensType>),
+    /// What `setActuatorsConfig` with this config would change, without writing anything.
+    #[serde(rename = "previewSetActuatorsConfig")]
+    PreviewSetActuatorsConfig(ActuatorsConfig),
     #[serde(rename = "forgetActuatorsConfig")]
     ForgetActuatorsConfig,
     /// Saves the autopilot's current value of each named parameter into the saved setup.
@@ -69,8 +73,27 @@ impl From<&CameraActuators> for ActuatorsConfig {
     }
 }
 
+/// What applying a hardware setup would change.
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone, TS)]
+pub struct SetupPreview {
+    /// Saved settings that change, as `name: old → new`.
+    pub changes: Vec<String>,
+    /// What a motorized setup wrote that a fixed-focus lens no longer uses, released as
+    /// `name: old → new`.
+    pub released: Vec<String>,
+}
+
+impl SetupPreview {
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty() && self.released.is_empty()
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone, TS)]
 pub struct ActuatorsParametersConfig {
+    // Lens
+    pub lens: Option<LensType>,
+
     // Camera parameters
     pub camera_id: Option<CameraID>,
 
@@ -111,6 +134,7 @@ pub struct ActuatorsParametersConfig {
 impl From<&ActuatorsParameters> for ActuatorsParametersConfig {
     fn from(value: &ActuatorsParameters) -> Self {
         Self {
+            lens: Some(value.lens),
             camera_id: Some(value.camera_id),
             focus_channel: Some(value.focus_channel),
             focus_channel_min: Some(value.focus_channel_min),
@@ -137,6 +161,15 @@ impl From<&ActuatorsParameters> for ActuatorsParametersConfig {
             tilt_mnt_pitch_max: Some(value.tilt_mnt_pitch_max),
         }
     }
+}
+
+/// Which actuators the camera's lens has. A fixed-focus lens has no focus or zoom servo,
+/// so only tilt is set up and the Lua script is not needed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum LensType {
+    #[default]
+    Motorized,
+    FixedFocus,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
