@@ -25,6 +25,10 @@ pub struct Calibration {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActuatorsParameters {
+    // Lens. Settings saved before lens types existed have no `lens` and load as motorized.
+    #[serde(default)]
+    pub lens: LensType,
+
     // Camera parameters
     pub camera_id: CameraID,
 
@@ -60,6 +64,13 @@ pub struct ActuatorsParameters {
     pub tilt_mnt_type: MountType,
     pub tilt_mnt_pitch_min: i32,
     pub tilt_mnt_pitch_max: i32,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LensType {
+    #[default]
+    Motorized,
+    FixedFocus,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,5 +191,67 @@ impl SettingsDataImpl for SettingsDataV1 {
 
     fn to_raw(&self) -> RawSettingsData {
         RawSettingsData::V1(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A camera saved before lens types existed.
+    const SETTINGS_WITHOUT_LENS: &str = r#"{
+        "version": "V1",
+        "actuators": {
+            "00000000-0000-0000-0000-000000000001": {
+                "parameters": {
+                    "camera_id": "CAM1",
+                    "focus_channel": "SERVO10",
+                    "focus_channel_min": 870,
+                    "focus_channel_trim": 918,
+                    "focus_channel_max": 2130,
+                    "focus_margin_gain": 1.0,
+                    "script_function": "SCRIPT1",
+                    "script_channel": "SERVO12",
+                    "script_channel_min": 870,
+                    "script_channel_trim": 1500,
+                    "script_channel_max": 2130,
+                    "enable_focus_and_zoom_correlation": true,
+                    "zoom_channel": "SERVO11",
+                    "zoom_channel_min": 935,
+                    "zoom_channel_trim": 935,
+                    "zoom_channel_max": 1850,
+                    "tilt_channel": "SERVO16",
+                    "tilt_channel_min": 865,
+                    "tilt_channel_trim": 1500,
+                    "tilt_channel_max": 2250,
+                    "tilt_channel_reversed": false,
+                    "tilt_mnt_type": "BrushlessPWM",
+                    "tilt_mnt_pitch_min": -70,
+                    "tilt_mnt_pitch_max": 70
+                },
+                "calibration": { "closest_points": [], "furthest_points": [] },
+                "state": { "focus": null, "zoom": null, "tilt": null }
+            }
+        }
+    }"#;
+
+    #[test]
+    fn settings_without_lens_load_as_motorized_and_keep_a_new_lens() {
+        let RawSettingsData::V1(mut settings) =
+            serde_json::from_str::<RawSettingsData>(SETTINGS_WITHOUT_LENS).unwrap()
+        else {
+            panic!("expected V1 settings");
+        };
+        let parameters = &mut settings.actuators[0].parameters;
+        assert_eq!(parameters.lens, LensType::Motorized);
+
+        parameters.lens = LensType::FixedFocus;
+        let saved = serde_json::to_string(&settings.to_raw()).unwrap();
+        let RawSettingsData::V1(reloaded) =
+            serde_json::from_str::<RawSettingsData>(&saved).unwrap()
+        else {
+            panic!("expected V1 settings");
+        };
+        assert_eq!(reloaded.actuators[0].parameters.lens, LensType::FixedFocus);
     }
 }
