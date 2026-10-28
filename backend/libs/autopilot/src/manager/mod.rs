@@ -269,6 +269,7 @@ impl Manager {
         let mut autopilot_reboot_required = overwrite;
 
         if let Some(parameters) = &new_config.parameters {
+            Self::start_unwritten_setup(camera_uuid, parameters).await?;
             let kept = Self::kept_parameters(camera_uuid, parameters).await?;
 
             autopilot_reboot_required |=
@@ -326,6 +327,28 @@ impl Manager {
         Ok(false)
     }
 
+    /// A camera with no saved setup wrote nothing, so it starts from `parameters` themselves
+    /// and has no old channel or camera id to turn off.
+    async fn start_unwritten_setup(
+        camera_uuid: &Uuid,
+        parameters: &api::ActuatorsParametersConfig,
+    ) -> Result<()> {
+        let mut manager = MANAGER.get().context("Not available")?.write().await;
+        if manager.settings.actuators.contains_key(camera_uuid) {
+            return Ok(());
+        }
+        let mut actuators = CameraActuators::default();
+        actuators.parameters = ActuatorsParameters::from(
+            merge_struct::merge(
+                &api::ActuatorsParametersConfig::from(&actuators.parameters),
+                parameters,
+            )
+            .context("Failing to merge structs")?,
+        );
+        manager.settings.actuators.insert(*camera_uuid, actuators);
+        Ok(())
+    }
+
     /// Parameters the camera's setup once `parameters` apply, or another camera's setup,
     /// uses. A channel or camera id the camera moves away from is not turned off when it is
     /// one of them, e.g. on a swap of two channels or a channel shared with another camera.
@@ -373,11 +396,21 @@ impl Manager {
 
     #[instrument(level = "debug")]
     pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
-        let actuators = CameraActuators::default();
+        let mut actuators = CameraActuators::default();
         let config = api::ActuatorsConfig::from(&actuators);
 
         {
             let mut manager = MANAGER.get().context("Not available")?.write().await;
+            // The channels and camera id the camera wrote stay until the defaults move off
+            // them, so the ones it no longer uses are turned off.
+            if let Some(saved) = manager.settings.actuators.get(camera_uuid) {
+                let (written, defaults) = (&saved.parameters, &mut actuators.parameters);
+                defaults.camera_id = written.camera_id;
+                defaults.focus_channel = written.focus_channel;
+                defaults.script_channel = written.script_channel;
+                defaults.zoom_channel = written.zoom_channel;
+                defaults.tilt_channel = written.tilt_channel;
+            }
             manager.settings.actuators.insert(*camera_uuid, actuators);
         }
 
