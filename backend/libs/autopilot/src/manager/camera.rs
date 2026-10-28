@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use tracing::*;
@@ -14,11 +16,13 @@ impl Manager {
         ParamType::UINT8(CameraType::Servo as u8)
     }
 
-    #[instrument(level = "debug", skip(parameters))]
+    /// The old camera id is only turned off when nothing in `kept` uses it.
+    #[instrument(level = "debug", skip(parameters, kept))]
     pub async fn update_camera_parameters(
         camera_uuid: &Uuid,
         parameters: &api::ActuatorsParametersConfig,
         overwrite: bool,
+        kept: &HashSet<String>,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
 
@@ -44,7 +48,9 @@ impl Manager {
             let encoding = mavlink.encoding().await;
 
             // Disables the old camera_id:
-            if &old_camera_id != camera_id {
+            if &old_camera_id != camera_id
+                && !kept.contains(&format!("CAM{}_TYPE", old_camera_id as u8))
+            {
                 let param_name = format!("CAM{}_TYPE", old_camera_id as u8);
 
                 let mut param = mavlink.get_param(&param_name, false).await?;
@@ -107,6 +113,16 @@ impl Manager {
                                 "Failed setting new camera camera_id parameter when setting parameter",
                             );
                         }
+                    }
+                } else {
+                    // Already held, the role still moves to this channel.
+                    let mut manager = crate::manager::MANAGER
+                        .get()
+                        .context("Not available")?
+                        .write()
+                        .await;
+                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
+                        actuators.parameters.camera_id = *camera_id;
                     }
                 }
             }

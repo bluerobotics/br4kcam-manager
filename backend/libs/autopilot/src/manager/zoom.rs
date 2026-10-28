@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use tracing::*;
@@ -10,11 +12,13 @@ use crate::{
 };
 
 impl Manager {
-    #[instrument(level = "debug", skip(parameters))]
+    /// The old channel is only turned off when nothing in `kept` uses it.
+    #[instrument(level = "debug", skip(parameters, kept))]
     pub async fn update_zoom_parameters(
         camera_uuid: &Uuid,
         parameters: &api::ActuatorsParametersConfig,
         overwrite: bool,
+        kept: &HashSet<String>,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
 
@@ -40,7 +44,9 @@ impl Manager {
             let encoding = mavlink.encoding().await;
 
             // Disables the old zoom_channel:
-            if &old_channel != channel {
+            if &old_channel != channel
+                && !kept.contains(&format!("SERVO{}_FUNCTION", old_channel as u8))
+            {
                 let param_name = format!("SERVO{}_FUNCTION", old_channel as u8);
 
                 let mut param = mavlink.get_param(&param_name, false).await?;
@@ -104,6 +110,16 @@ impl Manager {
                                 "Failed setting new zoom channel parameter when setting parameter",
                             );
                         }
+                    }
+                } else {
+                    // Already held, the role still moves to this channel.
+                    let mut manager = crate::manager::MANAGER
+                        .get()
+                        .context("Not available")?
+                        .write()
+                        .await;
+                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
+                        actuators.parameters.zoom_channel = *channel;
                     }
                 }
             }
