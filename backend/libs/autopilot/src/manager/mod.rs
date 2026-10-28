@@ -1,13 +1,10 @@
-mod calibration;
 mod camera;
 mod focus;
-mod macros;
 pub(crate) mod owned_parameters;
+pub(crate) mod plan;
 mod script;
 mod tilt;
 mod zoom;
-
-use std::collections::HashSet;
 
 use ::mavlink::ardupilotmega::SERVO_OUTPUT_RAW_DATA;
 use anyhow::{Context, Result};
@@ -266,59 +263,72 @@ impl Manager {
         new_config: &api::ActuatorsConfig,
         overwrite: bool,
     ) -> Result<bool> {
-        let mut autopilot_reboot_required = overwrite;
+        let snapshot = plan::Snapshot::capture().await?;
+        let plan = plan::plan_apply(
+            &snapshot,
+            *camera_uuid,
+            new_config,
+            overwrite,
+            plan::Start::Saved,
+        )?;
+        Self::execute(camera_uuid, plan).await
+    }
 
-        if let Some(parameters) = &new_config.parameters {
-            Self::start_unwritten_setup(camera_uuid, parameters).await?;
-            let kept = Self::kept_parameters(camera_uuid, parameters).await?;
+    /// Replace the camera's setup with the defaults and write all of it.
+    ///
+    /// Caller must hold [`CONFIG_APPLY`]. Returns like [`Self::update_config`].
+    #[instrument(level = "debug")]
+    pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
+        let config = api::ActuatorsConfig::from(&CameraActuators::default());
+        let snapshot = plan::Snapshot::capture().await?;
+        let plan = plan::plan_apply(
+            &snapshot,
+            *camera_uuid,
+            &config,
+            true,
+            plan::Start::Defaults,
+        )?;
+        Self::execute(camera_uuid, plan).await
+    }
 
-            autopilot_reboot_required |=
-                Self::update_camera_parameters(camera_uuid, parameters, overwrite, &kept).await?;
-
-            autopilot_reboot_required |=
-                Self::update_script_parameters(camera_uuid, parameters, overwrite, &kept).await?;
-
-            autopilot_reboot_required |=
-                Self::update_focus_parameters(camera_uuid, parameters, overwrite, &kept).await?;
-
-            autopilot_reboot_required |=
-                Self::update_zoom_parameters(camera_uuid, parameters, overwrite, &kept).await?;
-
-            autopilot_reboot_required |=
-                Self::update_tilt_parameters(camera_uuid, parameters, overwrite, &kept).await?;
+    /// Carry out `plan` for the camera. Returns `true` if the autopilot must be rebooted
+    /// before [`Self::finalize_config_after_reboot`].
+    async fn execute(camera_uuid: &Uuid, plan: plan::ApplyPlan) -> Result<bool> {
+        for write in &plan.writes {
+            Self::write_param(write).await?;
         }
 
-        let mut reload_script = overwrite;
-
-        if let Some(points) = &new_config.closest_points {
-            reload_script |= Self::update_closest_points(camera_uuid, points, overwrite).await?;
-        }
-        if let Some(points) = &new_config.furthest_points {
-            reload_script |= Self::update_furthest_points(camera_uuid, points, overwrite).await?;
-        }
-
-        // File write only — disk settings save is deferred to finalize / no-reboot path.
-        reload_script |= Self::export_script(camera_uuid, overwrite).await?;
-
-        autopilot_reboot_required |= crate::mavlink::component()?
-            .enable_lua_script(overwrite)
-            .await?;
-
-        if reload_script && !autopilot_reboot_required {
-            crate::mavlink::component()?
-                .reload_lua_scripts(overwrite)
-                .await?;
+        // The setup is replaced before the script, so the Lua status the script write refreshes
+        // compares it with the new setup.
+        let path = {
+            // The SERVO watcher keeps the live actuator state, so only the setup is replaced.
+            let mut manager = MANAGER.get().context("Not available")?.write().await;
+            let actuators = manager
+                .settings
+                .actuators
+                .entry(*camera_uuid)
+                .or_insert_with(|| plan.next.clone());
+            actuators.parameters = plan.next.parameters.clone();
+            actuators.closest_points = plan.next.closest_points.clone();
+            actuators.furthest_points = plan.next.furthest_points.clone();
+            manager.autopilot_scripts_file.clone()
+        };
+        if let plan::ScriptAction::Write(contents) = &plan.script {
+            Self::write_script_file(&path, contents).await?;
         }
 
-        if autopilot_reboot_required {
+        if plan.reboot {
             // Caller drops CONFIG_APPLY, reboots, then calls finalize_config_after_reboot.
             return Ok(true);
         }
 
-        let force_script_params = reload_script || overwrite;
-        if let Some(parameters) = &new_config.parameters {
-            Self::update_script_enable(camera_uuid, parameters, force_script_params).await?;
-            Self::update_script_gain(camera_uuid, parameters, force_script_params).await?;
+        if plan.reload_scripts {
+            crate::mavlink::component()?
+                .reload_lua_scripts(true)
+                .await?;
+        }
+        for write in &plan.after_reload {
+            Self::write_param(write).await?;
         }
 
         Self::save_actuators_settings().await?;
@@ -327,94 +337,48 @@ impl Manager {
         Ok(false)
     }
 
-    /// A camera with no saved setup wrote nothing, so it starts from `parameters` themselves
-    /// and has no old channel or camera id to turn off.
-    async fn start_unwritten_setup(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-    ) -> Result<()> {
-        let mut manager = MANAGER.get().context("Not available")?.write().await;
-        if manager.settings.actuators.contains_key(camera_uuid) {
-            return Ok(());
+    /// Writes one planned parameter, unless the autopilot already holds it and it is not forced.
+    async fn write_param(write: &plan::PlannedWrite) -> Result<()> {
+        let mavlink = crate::mavlink::component()?;
+        let encoding = mavlink.encoding().await;
+        let mut param = mavlink.get_param(&write.name, false).await?;
+        let old_value = param.value;
+        param.value.set_value(write.value, encoding)?;
+        let new_value = param.value;
+
+        if write.force || old_value != new_value {
+            mavlink
+                .set_param(param)
+                .await
+                .with_context(|| format!("Failed setting {}", write.name))?;
+            if old_value != new_value {
+                info!("{} changed from {old_value:?} to {new_value:?}", write.name);
+            }
         }
-        let mut actuators = CameraActuators::default();
-        actuators.parameters = ActuatorsParameters::from(
-            merge_struct::merge(
-                &api::ActuatorsParametersConfig::from(&actuators.parameters),
-                parameters,
-            )
-            .context("Failing to merge structs")?,
-        );
-        manager.settings.actuators.insert(*camera_uuid, actuators);
         Ok(())
     }
 
-    /// Parameters the camera's setup once `parameters` apply, or another camera's setup,
-    /// uses. A channel or camera id the camera moves away from is not turned off when it is
-    /// one of them, e.g. on a swap of two channels or a channel shared with another camera.
-    async fn kept_parameters(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-    ) -> Result<HashSet<String>> {
-        let manager = MANAGER.get().context("Not available")?.read().await;
-        let current = manager
-            .settings
-            .actuators
-            .get(camera_uuid)
-            .map(|actuators| actuators.parameters.clone())
-            .unwrap_or_default();
-        let next = ActuatorsParameters::from(
-            merge_struct::merge(&api::ActuatorsParametersConfig::from(&current), parameters)
-                .context("Failing to merge structs")?,
-        );
-
-        let mut kept = IndexMap::new();
-        owned_parameters::push_all_expectations(&next, &mut kept);
-        for (uuid, actuators) in &manager.settings.actuators {
-            if uuid != camera_uuid {
-                owned_parameters::push_all_expectations(&actuators.parameters, &mut kept);
-            }
-        }
-        Ok(kept.into_keys().collect())
-    }
-
-    /// Post-reboot enable/gain push and settings save. Caller must hold [`CONFIG_APPLY`].
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn finalize_config_after_reboot(
-        camera_uuid: &Uuid,
-        parameters: Option<&api::ActuatorsParametersConfig>,
-    ) -> Result<()> {
+    /// Post-reboot script parameters and settings save. The script parameters only exist once
+    /// the script runs. Caller must hold [`CONFIG_APPLY`].
+    #[instrument(level = "debug")]
+    pub async fn finalize_config_after_reboot(camera_uuid: &Uuid) -> Result<()> {
+        let parameters = {
+            let manager = MANAGER.get().context("Not available")?.read().await;
+            manager
+                .settings
+                .actuators
+                .get(camera_uuid)
+                .map(|actuators| actuators.parameters.clone())
+        };
         if let Some(parameters) = parameters {
-            Self::update_script_enable(camera_uuid, parameters, true).await?;
-            Self::update_script_gain(camera_uuid, parameters, true).await?;
+            for write in script::param_writes(&parameters, &parameters, true) {
+                Self::write_param(&write).await?;
+            }
         }
         Self::save_actuators_settings().await?;
         owned_parameters::rebuild().await;
         owned_parameters::reevaluate_after_apply().await;
         Ok(())
-    }
-
-    #[instrument(level = "debug")]
-    pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
-        let mut actuators = CameraActuators::default();
-        let config = api::ActuatorsConfig::from(&actuators);
-
-        {
-            let mut manager = MANAGER.get().context("Not available")?.write().await;
-            // The channels and camera id the camera wrote stay until the defaults move off
-            // them, so the ones it no longer uses are turned off.
-            if let Some(saved) = manager.settings.actuators.get(camera_uuid) {
-                let (written, defaults) = (&saved.parameters, &mut actuators.parameters);
-                defaults.camera_id = written.camera_id;
-                defaults.focus_channel = written.focus_channel;
-                defaults.script_channel = written.script_channel;
-                defaults.zoom_channel = written.zoom_channel;
-                defaults.tilt_channel = written.tilt_channel;
-            }
-            manager.settings.actuators.insert(*camera_uuid, actuators);
-        }
-
-        Self::update_config(camera_uuid, &config, true).await
     }
 }
 

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use anyhow::{Context, Result};
 use br4kcam_api::LuaScriptStatus;
 use indexmap::IndexMap;
@@ -10,8 +8,11 @@ use tracing::*;
 use uuid::Uuid;
 
 use crate::{
-    CameraActuators, api, generate_update_channel_param_function,
-    manager::{Manager, get_output_raw_from_channel},
+    CameraActuators, api,
+    manager::{
+        Manager, get_output_raw_from_channel,
+        plan::{Change, PlannedWrite, Planner},
+    },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -53,22 +54,28 @@ impl Manager {
                 .context(crate::ACTUATORS_NOT_CONFIGURED)?;
 
             (
-                generate_lua_script(camera_actuators)?,
+                generate_checked_lua_script(camera_actuators)?,
                 manager.autopilot_scripts_file.clone(),
             )
         };
-        validate_lua(&contents)?;
 
-        let path_obj = std::path::Path::new(&path);
-        if let Some(parent_dir) = path_obj.parent() {
-            tokio::fs::create_dir_all(parent_dir).await?;
-        }
-
-        if let Ok(existing_contents) = tokio::fs::read_to_string(path_obj).await
+        if let Ok(existing_contents) = tokio::fs::read_to_string(&path).await
             && !overwrite
             && lua_scripts_equivalent(&existing_contents, &contents)
         {
             return Ok(false);
+        }
+
+        Self::write_script_file(&path, &contents).await?;
+        // Settings save is deferred to update_config finalize / ExportLuaScript caller.
+        Ok(true)
+    }
+
+    #[instrument(level = "debug", skip(contents))]
+    pub(crate) async fn write_script_file(path: &str, contents: &str) -> Result<()> {
+        let path_obj = std::path::Path::new(path);
+        if let Some(parent_dir) = path_obj.parent() {
+            tokio::fs::create_dir_all(parent_dir).await?;
         }
 
         trace!("Saving Lua script to {path:?}. Lua script content: {contents:#?}");
@@ -83,8 +90,7 @@ impl Manager {
         remove_conflicting_owned_scripts(path_obj).await;
         info!("Wrote new lua script to {path:?}");
         crate::health::refresh_lua_script_status().await;
-        // Settings save is deferred to update_config finalize / ExportLuaScript caller.
-        Ok(true)
+        Ok(())
     }
 
     /// Whether the script installed on the autopilot is the one this install expects.
@@ -171,280 +177,6 @@ impl Manager {
         Ok(autopilot_reboot_required)
     }
 
-    /// The old channel is only turned off when nothing in `kept` uses it.
-    #[instrument(level = "debug", skip(parameters, kept))]
-    pub async fn update_script_parameters(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        overwrite: bool,
-        kept: &HashSet<String>,
-    ) -> Result<bool> {
-        let mut autopilot_reboot_required = overwrite;
-
-        if let Some(channel) = &parameters.script_channel {
-            // Snapshot under a short write with no await inside, so the MAVLink I/O
-            // below never runs while MANAGER is locked.
-            let old_channel = {
-                let mut manager = crate::manager::MANAGER
-                    .get()
-                    .context("Not available")?
-                    .write()
-                    .await;
-                manager
-                    .settings
-                    .actuators
-                    .entry(*camera_uuid)
-                    .or_default()
-                    .parameters
-                    .script_channel
-            };
-
-            let mavlink = crate::mavlink::component()?;
-            let encoding = mavlink.encoding().await;
-
-            // Disables the old script_channel:
-            if &old_channel != channel
-                && !kept.contains(&format!("SERVO{}_FUNCTION", old_channel as u8))
-            {
-                let param_name = format!("SERVO{}_FUNCTION", old_channel as u8);
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(ChannelFunction::Disabled as i16), encoding)?;
-                let new_value = param.value;
-
-                if old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "script_channel (SERVO{}) changed from {old_value:?} to {new_value:?}",
-                                old_channel as u8,
-                            );
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed to disable the old script channel when setting parameter",
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Sets the new script_channel:
-            {
-                let param_name = format!("SERVO{}_FUNCTION", *channel as u8);
-
-                // The script servo input is the values from the CameraFocus
-                let function = Self::script_channel_function();
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(function as i16), encoding)?;
-                let new_value = param.value;
-
-                if overwrite || old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "script_channel (SERVO{}) changed from {old_value:?} to {new_value:?}",
-                                *channel as u8
-                            );
-
-                            let mut manager = crate::manager::MANAGER
-                                .get()
-                                .context("Not available")?
-                                .write()
-                                .await;
-                            if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid)
-                            {
-                                actuators.parameters.script_channel = *channel;
-                            }
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed setting new script channel parameter when setting parameter",
-                            );
-                        }
-                    }
-                } else {
-                    // Already held, the role still moves to this channel.
-                    let mut manager = crate::manager::MANAGER
-                        .get()
-                        .context("Not available")?
-                        .write()
-                        .await;
-                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                        actuators.parameters.script_channel = *channel;
-                    }
-                }
-            }
-        }
-
-        Self::update_script_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
-            .await?;
-
-        Ok(autopilot_reboot_required)
-    }
-
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn update_script_enable(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<()> {
-        let (param_name, new_value, old_value) = {
-            let mut manager = crate::manager::MANAGER
-                .get()
-                .context("Not available")?
-                .write()
-                .await;
-            let current_parameters = &mut manager
-                .settings
-                .actuators
-                .entry(*camera_uuid)
-                .or_default()
-                .parameters;
-
-            let channel = current_parameters.camera_id as u8;
-
-            let param_name = format!("{PARAM_PREFIX}{channel}_ENABLE");
-
-            let new_value = match (parameters.enable_focus_and_zoom_correlation, force_apply) {
-                (Some(value), _) => value,
-                (None, true) => current_parameters.enable_focus_and_zoom_correlation,
-                (None, false) => return Ok(()),
-            };
-
-            let old_value = current_parameters.enable_focus_and_zoom_correlation;
-            (param_name, new_value, old_value)
-        };
-
-        if !force_apply && old_value == new_value {
-            trace!("Parameter {param_name:?} skipped");
-            return Ok(());
-        }
-
-        let mavlink = crate::mavlink::component()?;
-        let encoding = mavlink.encoding().await;
-        let mut param = mavlink.get_param(&param_name, false).await?;
-        param
-            .value
-            .set_value(ParamType::UINT8(new_value as u8), encoding)?;
-
-        match mavlink.set_param(param).await {
-            Ok(_) => {
-                if old_value != new_value {
-                    info!(
-                        "{} changed from {old_value:?} to {new_value:?}",
-                        stringify!(enable_focus_and_zoom_correlation),
-                    );
-                }
-                let mut manager = crate::manager::MANAGER
-                    .get()
-                    .context("Not available")?
-                    .write()
-                    .await;
-                if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                    actuators.parameters.enable_focus_and_zoom_correlation = new_value;
-                }
-            }
-            Err(error) => {
-                return Err(error).context(format!("Failed setting parameter {param_name}"));
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn update_script_gain(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<()> {
-        let (param_name, new_value, old_value) = {
-            let mut manager = crate::manager::MANAGER
-                .get()
-                .context("Not available")?
-                .write()
-                .await;
-            let current_parameters = &mut manager
-                .settings
-                .actuators
-                .entry(*camera_uuid)
-                .or_default()
-                .parameters;
-
-            let channel = current_parameters.camera_id as u8;
-
-            let param_name = format!("{PARAM_PREFIX}{channel}_GAIN");
-
-            let new_value = match (parameters.focus_margin_gain, force_apply) {
-                (Some(value), _) => value,
-                (None, true) => current_parameters.focus_margin_gain,
-                (None, false) => return Ok(()),
-            };
-
-            let old_value = current_parameters.focus_margin_gain;
-            (param_name, new_value, old_value)
-        };
-
-        if !force_apply && old_value == new_value {
-            trace!("Parameter {param_name:?} skipped");
-            return Ok(());
-        }
-
-        let mavlink = crate::mavlink::component()?;
-        let encoding = mavlink.encoding().await;
-        let mut param = mavlink.get_param(&param_name, false).await?;
-        param
-            .value
-            .set_value(ParamType::REAL32(new_value), encoding)?;
-
-        match mavlink.set_param(param).await {
-            Ok(_) => {
-                if old_value != new_value {
-                    info!(
-                        "{} changed from {old_value:?} to {new_value:?}",
-                        stringify!(focus_margin_gain),
-                    );
-                }
-                let mut manager = crate::manager::MANAGER
-                    .get()
-                    .context("Not available")?
-                    .write()
-                    .await;
-                if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                    actuators.parameters.focus_margin_gain = new_value;
-                }
-            }
-            Err(error) => {
-                return Err(error).context(format!("Failed setting parameter {param_name}"));
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn update_script_channel_parameters(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<()> {
-        Self::update_script_channel_min(camera_uuid, parameters, force_apply).await?;
-        Self::update_script_channel_trim(camera_uuid, parameters, force_apply).await?;
-        Self::update_script_channel_max(camera_uuid, parameters, force_apply).await?;
-
-        Ok(())
-    }
-
     fn script_channel_function() -> ChannelFunction {
         ChannelFunction::CameraFocus
     }
@@ -482,33 +214,6 @@ impl Manager {
         );
     }
 
-    generate_update_channel_param_function!(
-        update_script_channel_min,
-        script_channel_min,
-        "SERVO",
-        "MIN",
-        UINT16,
-        script_channel
-    );
-
-    generate_update_channel_param_function!(
-        update_script_channel_max,
-        script_channel_max,
-        "SERVO",
-        "MAX",
-        UINT16,
-        script_channel
-    );
-
-    generate_update_channel_param_function!(
-        update_script_channel_trim,
-        script_channel_trim,
-        "SERVO",
-        "TRIM",
-        UINT16,
-        script_channel
-    );
-
     /// Evaluate focus-script health from an already-fetched SERVO sample.
     ///
     /// Returns `true` when a Lua reload should be attempted. Callers must invoke
@@ -543,6 +248,70 @@ impl Manager {
         }
         false
     }
+}
+
+/// The script channel, the focus input from the GCS: `SERVO{script_channel}_FUNCTION` and
+/// its PWM range. Returns whether the function is written.
+pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
+    let Change {
+        current,
+        next,
+        incoming,
+        overwrite,
+    } = *change;
+    let mut written = overwrite;
+
+    if incoming.script_channel.is_some() {
+        written |= planner.channel_function(
+            current.script_channel,
+            next.script_channel,
+            Manager::script_channel_function(),
+            overwrite,
+        );
+    }
+    planner.channel_range(
+        next.script_channel,
+        [
+            current.script_channel_min,
+            current.script_channel_trim,
+            current.script_channel_max,
+        ],
+        [
+            next.script_channel_min,
+            next.script_channel_trim,
+            next.script_channel_max,
+        ],
+        written,
+    );
+
+    written
+}
+
+/// `BR4KCAM{n}_ENABLE` and `_GAIN` of `next`, each written when it changes from `current`,
+/// or both with `force`. They only exist while the script runs.
+pub(crate) fn param_writes(
+    current: &ActuatorsParameters,
+    next: &ActuatorsParameters,
+    force: bool,
+) -> Vec<PlannedWrite> {
+    let camera = next.camera_id as u8;
+    let mut writes = Vec::new();
+    if force || current.enable_focus_and_zoom_correlation != next.enable_focus_and_zoom_correlation
+    {
+        writes.push(PlannedWrite {
+            name: format!("{PARAM_PREFIX}{camera}_ENABLE"),
+            value: ParamType::UINT8(next.enable_focus_and_zoom_correlation as u8),
+            force: true,
+        });
+    }
+    if force || current.focus_margin_gain != next.focus_margin_gain {
+        writes.push(PlannedWrite {
+            name: format!("{PARAM_PREFIX}{camera}_GAIN"),
+            value: ParamType::REAL32(next.focus_margin_gain),
+            force: true,
+        });
+    }
+    writes
 }
 
 pub(super) fn push_owned_expectations(
@@ -611,8 +380,15 @@ fn normalize_lua_script_for_compare(script: &str) -> String {
         .join("\n")
 }
 
-fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
+pub(super) fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
     normalize_lua_script_for_compare(installed) == normalize_lua_script_for_compare(expected)
+}
+
+/// The script for `config`, checked to be valid Lua.
+pub(super) fn generate_checked_lua_script(config: &CameraActuators) -> Result<String> {
+    let contents = generate_lua_script(config)?;
+    validate_lua(&contents)?;
+    Ok(contents)
 }
 
 fn generate_lua_script(config: &CameraActuators) -> Result<String> {
