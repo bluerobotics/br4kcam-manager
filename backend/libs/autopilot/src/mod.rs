@@ -181,11 +181,7 @@ pub async fn reset_actuators_config(
         }),
         Box::pin(async {
             progress(4, STEPS, "Enabling the script and saving the setup");
-            manager::Manager::finalize_config_after_reboot(
-                &camera_uuid,
-                default_config.parameters.as_ref(),
-            )
-            .await
+            manager::Manager::finalize_config_after_reboot(&camera_uuid).await
         }),
     )
     .await?;
@@ -392,11 +388,7 @@ pub(crate) async fn control_inner(
                     manager::Manager::update_config(&camera_uuid, &new_config, overwrite).await
                 }),
                 Box::pin(async {
-                    manager::Manager::finalize_config_after_reboot(
-                        &camera_uuid,
-                        new_config.parameters.as_ref(),
-                    )
-                    .await
+                    manager::Manager::finalize_config_after_reboot(&camera_uuid).await
                 }),
             )
             .await?;
@@ -439,15 +431,10 @@ pub(crate) async fn control_inner(
                 .actuators
                 .contains_key(&camera_uuid);
             if had_entry {
-                let default_params = api::ActuatorsConfig::from(&CameraActuators::default());
                 manager::reboot_outside_apply(
                     Box::pin(async { manager::Manager::reset_config(&camera_uuid).await }),
                     Box::pin(async {
-                        manager::Manager::finalize_config_after_reboot(
-                            &camera_uuid,
-                            default_params.parameters.as_ref(),
-                        )
-                        .await
+                        manager::Manager::finalize_config_after_reboot(&camera_uuid).await
                     }),
                 )
                 .await?;
