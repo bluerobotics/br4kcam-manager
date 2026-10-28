@@ -424,7 +424,10 @@ fn store_lua_script_status(status: LuaScriptStatus) -> bool {
         return false;
     }
 
-    if !matches!(status, LuaScriptStatus::Ok | LuaScriptStatus::Unknown) {
+    if !matches!(
+        status,
+        LuaScriptStatus::Ok | LuaScriptStatus::Unknown | LuaScriptStatus::NotNeeded
+    ) {
         warn!("Autopilot Lua script is {status:?}");
     }
     guard.lua_script = status;
@@ -609,7 +612,13 @@ fn run_classifier() {
 }
 
 async fn run_classifier_async() {
-    let lua_disabled = if let Ok(component) = mavlink::component() {
+    // Cameras with a fixed-focus lens need no script, so scripting being off only matters
+    // once one with a motorized lens is configured (or before any camera is).
+    let needs_scripting =
+        crate::configured_cameras().await.is_empty() || crate::any_motorized_camera().await;
+    let lua_disabled = if !needs_scripting {
+        false
+    } else if let Ok(component) = mavlink::component() {
         let params = component.inner.parameters.read().await;
         scr_enable_disabled(&params)
     } else {
@@ -1092,6 +1101,54 @@ mod tests {
                 u16::MAX,
             );
         }
+        assert!(parameter_drifts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn fixed_focus_lens_owns_only_tilt_and_reports_no_focus_drift() {
+        let _health_tests = lock_health_tests().await;
+        health_reset();
+        let camera_uuid = Uuid::from_u128(0xd11f_0000_0000_0003);
+        let actuators = ActuatorsParameters {
+            lens: crate::api::LensType::FixedFocus,
+            ..ActuatorsParameters::default()
+        };
+        crate::manager::owned_parameters::install_expectations_for_test(camera_uuid, &actuators);
+
+        let unused = [
+            format!("SERVO{}_FUNCTION", actuators.focus_channel as u8),
+            format!("SERVO{}_FUNCTION", actuators.script_channel as u8),
+            format!("SERVO{}_FUNCTION", actuators.zoom_channel as u8),
+            format!("CAM{}_TYPE", actuators.camera_id as u8),
+            format!("BR4KCAM{}_ENABLE", actuators.camera_id as u8),
+            format!("BR4KCAM{}_GAIN", actuators.camera_id as u8),
+        ];
+        for name in &unused {
+            assert!(
+                crate::manager::owned_parameters::expectations_for_param(name).is_empty(),
+                "{name} must not be owned by a fixed-focus lens"
+            );
+        }
+        assert_eq!(
+            crate::manager::owned_parameters::expectations_for_param(&format!(
+                "SERVO{}_FUNCTION",
+                actuators.tilt_channel as u8
+            ))
+            .len(),
+            1
+        );
+
+        let mut cache = indexmap::IndexMap::new();
+        for name in unused {
+            cache.insert(
+                name.clone(),
+                Parameter {
+                    name,
+                    value: ParamType::INT16(-1),
+                },
+            );
+        }
+        crate::manager::owned_parameters::observe_cached(&cache, ObserveSource::Connect);
         assert!(parameter_drifts().is_empty());
     }
 }

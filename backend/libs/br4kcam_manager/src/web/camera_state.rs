@@ -345,8 +345,8 @@ pub(crate) fn emit_autopilot_control_update(
     match action {
         AutopilotAction::SetActuatorsState(_) => event.actuators_state = Some(result.clone()),
         AutopilotAction::SetActuatorsConfig(_)
-        | AutopilotAction::ResetActuatorsConfig
-        | AutopilotAction::ForceResetActuatorsConfig => {
+        | AutopilotAction::ResetActuatorsConfig(_)
+        | AutopilotAction::ForceResetActuatorsConfig(_) => {
             event.actuators_config = Some(result.clone());
             event.actuators_configured = Some(true);
         }

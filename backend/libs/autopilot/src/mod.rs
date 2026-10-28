@@ -52,9 +52,33 @@ impl Default for CameraActuators {
     }
 }
 
+impl CameraActuators {
+    /// The default setup of a camera with `lens`.
+    fn default_for(lens: api::LensType) -> Self {
+        let mut actuators = Self::default();
+        actuators.parameters.lens = lens;
+        actuators
+    }
+}
+
 /// True when `message` (e.g. `format!("{error:?}")`) carries [`ACTUATORS_NOT_CONFIGURED`].
 pub fn error_indicates_actuators_not_configured(message: &str) -> bool {
     message.contains(ACTUATORS_NOT_CONFIGURED)
+}
+
+/// Whether any camera with persisted actuator settings has a motorized lens, i.e. needs
+/// the Lua script and focus/zoom controls.
+pub async fn any_motorized_camera() -> bool {
+    match MANAGER.get() {
+        Some(manager) => manager
+            .read()
+            .await
+            .settings
+            .actuators
+            .values()
+            .any(|actuators| actuators.parameters.has_motorized_lens()),
+        None => false,
+    }
 }
 
 /// UUIDs of every camera with persisted actuator settings, i.e. cameras this
@@ -77,15 +101,28 @@ pub async fn configured_cameras() -> Vec<Uuid> {
 pub struct ResetOutcome {
     /// Actuators configuration after the reset.
     pub config: api::ActuatorsConfig,
-    /// Settings that differed from the defaults, as `name: old → new`.
+    /// Settings that differed from the defaults, and parameters released for a fixed-focus
+    /// lens, as `name: old → new`.
     pub changes: Vec<String>,
 }
 
-/// Parameters of `current` that differ from `defaults`, as `name: old → new`.
+/// Whether a camera with `lens` uses the setting `name`. A fixed-focus lens only has tilt.
+fn setting_used_by(lens: api::LensType, name: &str) -> bool {
+    match lens {
+        api::LensType::Motorized => true,
+        api::LensType::FixedFocus => {
+            name == "lens" || name == "camera_id" || name.starts_with("tilt_")
+        }
+    }
+}
+
+/// Parameters of `current` that differ from `defaults`, as `name: old → new`. Settings the
+/// lens of `defaults` does not use are left out.
 fn changed_parameters(
     current: &api::ActuatorsParametersConfig,
     defaults: &api::ActuatorsParametersConfig,
 ) -> Result<Vec<String>> {
+    let lens = defaults.lens.unwrap_or_default();
     let current = serde_json::to_value(current)?;
     let defaults = serde_json::to_value(defaults)?;
     let (Some(current), Some(defaults)) = (current.as_object(), defaults.as_object()) else {
@@ -94,6 +131,7 @@ fn changed_parameters(
 
     Ok(defaults
         .iter()
+        .filter(|(name, _)| setting_used_by(lens, name))
         .filter(|(name, default)| current.get(*name) != Some(*default))
         .map(|(name, default)| {
             let old = current.get(name).unwrap_or(&serde_json::Value::Null);
@@ -119,21 +157,69 @@ async fn saved_actuators_config(camera_uuid: Uuid) -> Result<Option<api::Actuato
         .map(api::ActuatorsConfig::from))
 }
 
-/// Settings that a non-forced default setup would change. A camera with no saved setup
+/// Settings that applying `next` over `current` would change. A camera with no saved setup
 /// reports a single "Initial hardware setup" entry.
-fn default_setup_changes(
+fn setup_changes(
     current: &Option<api::ActuatorsConfig>,
-    default_config: &api::ActuatorsConfig,
+    next: &api::ActuatorsConfig,
 ) -> Result<Vec<String>> {
-    match (current, &default_config.parameters) {
-        (Some(current), Some(defaults)) => {
-            changed_parameters(current.parameters.as_ref().unwrap_or(defaults), defaults)
+    match (current, &next.parameters) {
+        (Some(current), Some(next)) => {
+            changed_parameters(current.parameters.as_ref().unwrap_or(next), next)
         }
         _ => Ok(vec!["Initial hardware setup".to_string()]),
     }
 }
 
-/// Apply the default hardware setup, reporting `progress(step, total, label)`.
+/// What applying `next` over the saved setup `current` of `camera_uuid` would change. The
+/// releases come from the same plan the apply carries out.
+async fn setup_preview(
+    camera_uuid: Uuid,
+    current: &Option<api::ActuatorsConfig>,
+    next: &api::ActuatorsConfig,
+    overwrite: bool,
+    start: manager::plan::Start,
+) -> Result<api::SetupPreview> {
+    let changes = setup_changes(current, next)?;
+    let snapshot = manager::plan::Snapshot::capture().await?;
+    let plan = manager::plan::plan_apply(&snapshot, camera_uuid, next, overwrite, start)?;
+    let released = manager::plan::describe_releases(&plan, &snapshot);
+
+    Ok(api::SetupPreview { changes, released })
+}
+
+/// How a default setup for `lens` applies: over the defaults, writing everything, when forced
+/// or for a camera with no saved setup, else over the saved setup. Returns the start and
+/// whether to overwrite.
+fn default_setup_start(
+    force: bool,
+    current: &Option<api::ActuatorsConfig>,
+    lens: api::LensType,
+) -> (manager::plan::Start, bool) {
+    if force || current.is_none() {
+        (manager::plan::Start::Defaults(lens), true)
+    } else {
+        (manager::plan::Start::Saved, false)
+    }
+}
+
+/// The lens a default setup is for: the `requested` one, else the saved one.
+fn default_setup_lens(
+    requested: Option<api::LensType>,
+    current: &Option<api::ActuatorsConfig>,
+) -> api::LensType {
+    requested
+        .or_else(|| {
+            current
+                .as_ref()
+                .and_then(|config| config.parameters.as_ref())
+                .and_then(|parameters| parameters.lens)
+        })
+        .unwrap_or_default()
+}
+
+/// Apply the default hardware setup for `lens` (the saved lens when `None`), reporting
+/// `progress(step, total, label)`.
 ///
 /// Without `force`, a camera whose saved setup already matches the defaults is left
 /// untouched, and otherwise only the differing parameters are written. With `force`
@@ -142,14 +228,27 @@ fn default_setup_changes(
 pub async fn reset_actuators_config(
     camera_uuid: Uuid,
     force: bool,
+    lens: Option<api::LensType>,
     progress: &(dyn Fn(u32, u32, &str) + Send + Sync),
 ) -> Result<ResetOutcome> {
     const STEPS: u32 = 4;
-    let default_config = api::ActuatorsConfig::from(&CameraActuators::default());
 
     progress(1, STEPS, "Comparing the current setup with the defaults");
     let current = saved_actuators_config(camera_uuid).await?;
-    let changes = default_setup_changes(&current, &default_config)?;
+    let lens = default_setup_lens(lens, &current);
+    let default_config = api::ActuatorsConfig::from(&CameraActuators::default_for(lens));
+    let (start, overwrite) = default_setup_start(force, &current, lens);
+    let preview = setup_preview(camera_uuid, &current, &default_config, overwrite, start).await?;
+    let changes: Vec<String> = preview
+        .changes
+        .into_iter()
+        .chain(
+            preview
+                .released
+                .into_iter()
+                .map(|line| format!("{line} (released)")),
+        )
+        .collect();
     if !force
         && changes.is_empty()
         && let Some(config) = current
@@ -160,13 +259,15 @@ pub async fn reset_actuators_config(
     let reapply_everything = force || current.is_none();
     manager::reboot_outside_apply_with(
         Box::pin(async {
-            progress(
-                2,
-                STEPS,
-                "Applying camera, focus, zoom, tilt and script parameters",
-            );
+            let label = match lens {
+                api::LensType::Motorized => {
+                    "Applying camera, focus, zoom, tilt and script parameters"
+                }
+                api::LensType::FixedFocus => "Applying tilt parameters",
+            };
+            progress(2, STEPS, label);
             if reapply_everything {
-                manager::Manager::reset_config(&camera_uuid).await
+                manager::Manager::reset_config(&camera_uuid, lens).await
             } else {
                 manager::Manager::update_config(&camera_uuid, &default_config, false).await
             }
@@ -180,12 +281,12 @@ pub async fn reset_actuators_config(
             crate::mavlink::component()?.reboot_autopilot().await
         }),
         Box::pin(async {
-            progress(4, STEPS, "Enabling the script and saving the setup");
-            manager::Manager::finalize_config_after_reboot(
-                &camera_uuid,
-                default_config.parameters.as_ref(),
-            )
-            .await
+            let label = match lens {
+                api::LensType::Motorized => "Enabling the script and saving the setup",
+                api::LensType::FixedFocus => "Saving the setup",
+            };
+            progress(4, STEPS, label);
+            manager::Manager::finalize_config_after_reboot(&camera_uuid).await
         }),
     )
     .await?;
@@ -329,7 +430,10 @@ pub(crate) async fn control_inner(
                         .settings
                         .actuators
                         .get(&camera_uuid)
-                        .is_some_and(|a| a.parameters.enable_focus_and_zoom_correlation)
+                        .is_some_and(|a| {
+                            a.parameters.has_motorized_lens()
+                                && a.parameters.enable_focus_and_zoom_correlation
+                        })
                 };
                 if enabled {
                     let health_servo = crate::mavlink::component()?
@@ -368,7 +472,9 @@ pub(crate) async fn control_inner(
             serde_json::to_value(config)?
         }
         Action::GetActuatorsDefaultConfig => {
-            let config = api::ActuatorsConfig::from(&CameraActuators::default());
+            let current = saved_actuators_config(actuators_control.camera_uuid).await?;
+            let lens = default_setup_lens(None, &current);
+            let config = api::ActuatorsConfig::from(&CameraActuators::default_for(lens));
 
             serde_json::to_value(config)?
         }
@@ -392,11 +498,7 @@ pub(crate) async fn control_inner(
                     manager::Manager::update_config(&camera_uuid, &new_config, overwrite).await
                 }),
                 Box::pin(async {
-                    manager::Manager::finalize_config_after_reboot(
-                        &camera_uuid,
-                        new_config.parameters.as_ref(),
-                    )
-                    .await
+                    manager::Manager::finalize_config_after_reboot(&camera_uuid).await
                 }),
             )
             .await?;
@@ -411,17 +513,46 @@ pub(crate) async fn control_inner(
 
             serde_json::to_value(config)?
         }
-        Action::PreviewResetActuatorsConfig => {
-            let current = saved_actuators_config(actuators_control.camera_uuid).await?;
-            let default_config = api::ActuatorsConfig::from(&CameraActuators::default());
+        Action::PreviewResetActuatorsConfig(lens) => {
+            let camera_uuid = actuators_control.camera_uuid;
+            let current = saved_actuators_config(camera_uuid).await?;
+            let lens = default_setup_lens(*lens, &current);
+            let default_config = api::ActuatorsConfig::from(&CameraActuators::default_for(lens));
+            let (start, overwrite) = default_setup_start(false, &current, lens);
+            let preview =
+                setup_preview(camera_uuid, &current, &default_config, overwrite, start).await?;
 
-            serde_json::to_value(default_setup_changes(&current, &default_config)?)?
+            serde_json::to_value(preview)?
         }
-        Action::ResetActuatorsConfig | Action::ForceResetActuatorsConfig => {
-            let force = matches!(actuators_control.action, Action::ForceResetActuatorsConfig);
+        Action::PreviewSetActuatorsConfig(new_config) => {
+            let camera_uuid = actuators_control.camera_uuid;
+            let current = saved_actuators_config(camera_uuid).await?;
+            let base_config = current
+                .clone()
+                .unwrap_or(api::ActuatorsConfig::from(&CameraActuators::default()));
+            let new_config = merge_struct::merge(&base_config, new_config)
+                .context("Failing to merge structs")?;
+            let overwrite = current.is_none();
+            let preview = setup_preview(
+                camera_uuid,
+                &current,
+                &new_config,
+                overwrite,
+                manager::plan::Start::Saved,
+            )
+            .await?;
+
+            serde_json::to_value(preview)?
+        }
+        Action::ResetActuatorsConfig(lens) | Action::ForceResetActuatorsConfig(lens) => {
+            let force = matches!(
+                actuators_control.action,
+                Action::ForceResetActuatorsConfig(_)
+            );
             let outcome = Box::pin(reset_actuators_config(
                 actuators_control.camera_uuid,
                 force,
+                *lens,
                 &|_, _, _| {},
             ))
             .await?;
@@ -439,15 +570,12 @@ pub(crate) async fn control_inner(
                 .actuators
                 .contains_key(&camera_uuid);
             if had_entry {
-                let default_params = api::ActuatorsConfig::from(&CameraActuators::default());
+                let current = saved_actuators_config(camera_uuid).await?;
+                let lens = default_setup_lens(None, &current);
                 manager::reboot_outside_apply(
-                    Box::pin(async { manager::Manager::reset_config(&camera_uuid).await }),
+                    Box::pin(async { manager::Manager::reset_config(&camera_uuid, lens).await }),
                     Box::pin(async {
-                        manager::Manager::finalize_config_after_reboot(
-                            &camera_uuid,
-                            default_params.parameters.as_ref(),
-                        )
-                        .await
+                        manager::Manager::finalize_config_after_reboot(&camera_uuid).await
                     }),
                 )
                 .await?;
@@ -550,8 +678,8 @@ mod tests {
     use anyhow::anyhow;
 
     use super::{
-        ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters, default_setup_changes,
-        error_indicates_actuators_not_configured,
+        ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters,
+        error_indicates_actuators_not_configured, setup_changes,
     };
 
     #[test]
@@ -569,17 +697,57 @@ mod tests {
     }
 
     #[test]
-    fn default_setup_changes_only_reports_a_real_difference() {
+    fn setup_changes_only_reports_a_real_difference() {
         let defaults = api::ActuatorsConfig::from(&CameraActuators::default());
         assert_eq!(
-            default_setup_changes(&None, &defaults).unwrap(),
+            setup_changes(&None, &defaults).unwrap(),
             ["Initial hardware setup"]
         );
         assert!(
-            default_setup_changes(&Some(defaults.clone()), &defaults)
+            setup_changes(&Some(defaults.clone()), &defaults)
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn fixed_focus_changes_ignore_settings_it_does_not_use() {
+        let motorized = api::ActuatorsConfig::from(&CameraActuators::default())
+            .parameters
+            .unwrap();
+        let fixed =
+            api::ActuatorsConfig::from(&CameraActuators::default_for(api::LensType::FixedFocus))
+                .parameters
+                .unwrap();
+
+        let mut current = motorized.clone();
+        current.focus_channel = Some(api::ServoChannel::SERVO1);
+        current.tilt_channel = Some(api::ServoChannel::SERVO2);
+        let changes = changed_parameters(&current, &fixed).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0], "lens: Motorized → FixedFocus");
+        assert!(changes[1].starts_with("tilt_channel: SERVO2 → "));
+
+        let mut current = fixed.clone();
+        current.focus_channel = Some(api::ServoChannel::SERVO1);
+        assert!(changed_parameters(&current, &fixed).unwrap().is_empty());
+    }
+
+    #[test]
+    fn default_setup_actions_accept_a_missing_lens() {
+        let parse = |json: &str| serde_json::from_str::<api::Action>(json).unwrap();
+        assert!(matches!(
+            parse(r#"{"action":"resetActuatorsConfig"}"#),
+            api::Action::ResetActuatorsConfig(None)
+        ));
+        assert!(matches!(
+            parse(r#"{"action":"forceResetActuatorsConfig","json":null}"#),
+            api::Action::ForceResetActuatorsConfig(None)
+        ));
+        assert!(matches!(
+            parse(r#"{"action":"previewResetActuatorsConfig","json":"FixedFocus"}"#),
+            api::Action::PreviewResetActuatorsConfig(Some(api::LensType::FixedFocus))
+        ));
     }
 
     #[test]

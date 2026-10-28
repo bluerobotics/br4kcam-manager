@@ -95,9 +95,10 @@ pub(crate) async fn autopilot_control(
     camera_ui::start_autopilot_action(camera_uuid, &action);
 
     let result = match &action {
-        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig => {
-            let forced = matches!(action, AutopilotAction::ForceResetActuatorsConfig);
-            autopilot::reset_actuators_config(camera_uuid, forced, &|step, total, label| {
+        AutopilotAction::ResetActuatorsConfig(lens)
+        | AutopilotAction::ForceResetActuatorsConfig(lens) => {
+            let forced = matches!(action, AutopilotAction::ForceResetActuatorsConfig(_));
+            autopilot::reset_actuators_config(camera_uuid, forced, *lens, &|step, total, label| {
                 camera_ui::set_setup_progress(camera_uuid, step, total, label)
             })
             .await

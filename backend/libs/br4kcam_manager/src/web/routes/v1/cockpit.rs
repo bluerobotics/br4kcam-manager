@@ -156,13 +156,15 @@ pub enum CockpitModifierKeyOption {
 
 pub async fn cockpit_extras() -> impl IntoResponse {
     let cameras = mcm_client::cameras().await;
+    let fixed_focus_only = !autopilot::configured_cameras().await.is_empty()
+        && !autopilot::any_motorized_camera().await;
 
     let cockpit_extras = CockpitExtras {
         target_system: "Cockpit".to_string(),
         target_cockpit_api_version: "1.0.0".to_string(),
         widgets: widgets(&cameras),
         actions: actions(&cameras),
-        joystick_suggestions: joystick_suggestions(&cameras),
+        joystick_suggestions: joystick_suggestions(&cameras, fixed_focus_only),
     };
 
     let json = serde_json::to_string_pretty(&cockpit_extras).unwrap();
@@ -254,7 +256,10 @@ fn actions(cameras: &Cameras) -> Vec<CockpitAction> {
     actions
 }
 
-fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
+/// With `fixed_focus_only` (every configured camera has a fixed-focus lens) the focus and zoom
+/// buttons are left out. Those suggestions get their own ids, so each id and version keeps
+/// one content for Cockpit.
+fn joystick_suggestions(_cameras: &Cameras, fixed_focus_only: bool) -> Vec<JoystickMapSuggestion> {
     let mut mappings_rov = vec![
         // === Regular modifier ===
         ButtonMappingSuggestion {
@@ -519,10 +524,20 @@ fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
         },
     ];
 
+    let mut mappings_for_anys = mappings_for_anys;
+    let (id_suffix, name_suffix) = if fixed_focus_only {
+        mappings_for_anys.retain(|mapping| {
+            !mapping.id.starts_with("camera-focus-") && !mapping.id.starts_with("camera-zoom-")
+        });
+        ("-fixed-focus", " (fixed focus)")
+    } else {
+        ("", "")
+    };
+
     mappings_rov.extend_from_slice(&mappings_for_anys);
     mappings_rov_with_gripper.extend_from_slice(&mappings_for_anys);
 
-    vec![
+    let suggestions = vec![
         JoystickMapSuggestion {
             id: "br4kcam-for-bluerov".to_string(),
             name: "4K Cam on BlueROV".to_string(),
@@ -547,7 +562,16 @@ fn joystick_suggestions(_cameras: &Cameras) -> Vec<JoystickMapSuggestion> {
             button_mapping_suggestions: mappings_for_anys,
             version: JOYSTICK_SUGGESTION_VERSION.to_string(),
         },
-    ]
+    ];
+
+    suggestions
+        .into_iter()
+        .map(|suggestion| JoystickMapSuggestion {
+            id: format!("{}{id_suffix}", suggestion.id),
+            name: format!("{}{name_suffix}", suggestion.name),
+            ..suggestion
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -570,10 +594,31 @@ mod tests {
             );
         }
 
-        let suggestions = joystick_suggestions(&cameras);
-        assert!(!suggestions.is_empty());
-        for suggestion in &suggestions {
-            assert_eq!(suggestion.version, JOYSTICK_SUGGESTION_VERSION);
+        for fixed_focus_only in [false, true] {
+            let suggestions = joystick_suggestions(&cameras, fixed_focus_only);
+            assert!(!suggestions.is_empty());
+            for suggestion in &suggestions {
+                assert_eq!(suggestion.version, JOYSTICK_SUGGESTION_VERSION);
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_focus_suggestions_drop_focus_and_zoom_under_their_own_ids() {
+        let cameras = Cameras::new();
+        let has_focus_or_zoom = |suggestion: &JoystickMapSuggestion| {
+            suggestion.button_mapping_suggestions.iter().any(|mapping| {
+                mapping.id.starts_with("camera-focus-") || mapping.id.starts_with("camera-zoom-")
+            })
+        };
+
+        let motorized = joystick_suggestions(&cameras, false);
+        let fixed = joystick_suggestions(&cameras, true);
+        assert_eq!(motorized.len(), fixed.len());
+        for (motorized, fixed) in motorized.iter().zip(&fixed) {
+            assert!(has_focus_or_zoom(motorized));
+            assert!(!has_focus_or_zoom(fixed));
+            assert_eq!(fixed.id, format!("{}-fixed-focus", motorized.id));
         }
     }
 }

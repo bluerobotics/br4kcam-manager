@@ -212,6 +212,7 @@ import { useWindowSize } from '@vueuse/core'
 import { useRouteQuery } from '@vueuse/router'
 
 import type { Camera } from '@/bindings/mcm_client'
+import type { ActuatorsConfig, LensType } from '@/bindings/autopilot'
 import type {
   CameraConnectivity,
   CameraStateEvent,
@@ -292,6 +293,11 @@ const cameraStreamError = ref<string | null>(null)
 const cameraOnvifAuthError = ref<string | null>(null)
 /** Per-camera actuators_configured from camera/state — gates setup health problems. */
 const actuatorsConfiguredByUuid = ref<Record<string, boolean>>({})
+/** Per-camera saved lens from camera/state — a fixed-focus lens has no focus, zoom or script. */
+const lensByUuid = ref<Record<string, LensType>>({})
+const selectedCameraFixedFocus = computed(
+  () => selectedCameraUUID.value != null && lensByUuid.value[selectedCameraUUID.value] === 'FixedFocus',
+)
 const connectionState = ref<ConnectionState>('connecting')
 let everConnected = false
 /** Connection state the dialog renders, held past reconnect so it cannot flash by. */
@@ -458,6 +464,7 @@ const healthInputBase = computed(() => ({
   hardwareConfigured:
     selectedCameraUUID.value != null
     && actuatorsConfiguredByUuid.value[selectedCameraUUID.value] === true,
+  fixedFocus: selectedCameraFixedFocus.value,
 }))
 
 const healthFlags = computed(() =>
@@ -639,6 +646,15 @@ const applyCameraState = (body: unknown) => {
       [data.camera_uuid]: data.actuators_configured,
     }
   }
+  const lens = (data.actuators_config as ActuatorsConfig | null | undefined)?.parameters?.lens
+  if (lens) {
+    lensByUuid.value = { ...lensByUuid.value, [data.camera_uuid]: lens }
+  } else if (data.actuators_configured === false) {
+    // Forgotten, possibly from another client: no saved lens any more.
+    const lenses = { ...lensByUuid.value }
+    delete lenses[data.camera_uuid]
+    lensByUuid.value = lenses
+  }
   if (data.ui) {
     uiByCamera.set(data.camera_uuid, data.ui)
     if (data.camera_uuid === selectedCameraUUID.value) {
@@ -734,6 +750,9 @@ const onCameraForgotten = (cameraUuid: string): void => {
   const labels = { ...cameraLabelByUuid.value }
   delete labels[cameraUuid]
   cameraLabelByUuid.value = labels
+  const lenses = { ...lensByUuid.value }
+  delete lenses[cameraUuid]
+  lensByUuid.value = lenses
 
   if (selectedCameraUUID.value === cameraUuid) {
     selectedCameraUUID.value = null
@@ -864,13 +883,16 @@ const rebootCamera = (): void => {
 }
 
 const toolsMenuItems = computed<BlueMenuItem[]>(() => [
-  {
-    title: 'Update Lua script',
-    icon: 'mdi-script-text-outline',
-    disabled: !backendConnected.value || vehicleArmed.value,
-    hint: vehicleArmed.value ? 'Disabled while the vehicle is armed' : undefined,
-    action: updateLuaScript,
-  },
+  // A fixed-focus lens needs no autopilot script.
+  ...(selectedCameraFixedFocus.value
+    ? []
+    : [{
+        title: 'Update Lua script',
+        icon: 'mdi-script-text-outline',
+        disabled: !backendConnected.value || vehicleArmed.value,
+        hint: vehicleArmed.value ? 'Disabled while the vehicle is armed' : undefined,
+        action: updateLuaScript,
+      }]),
   {
     title: 'Apply recommended camera settings',
     icon: 'mdi-auto-fix',
@@ -944,6 +966,7 @@ const unsubscribeConnectionState = backendClient.onConnectionState((state, previ
     connectionStats.value = null
     uiByCamera.clear()
     actuatorsConfiguredByUuid.value = {}
+    lensByUuid.value = {}
     uiLoading.value = false
     uiRebooting.value = false
     errorDialogMessage.value = null
