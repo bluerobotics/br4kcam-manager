@@ -52,7 +52,9 @@ url_params_serializer = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+insta = { version = "1.49.0", features = ["json", "redactions"] }
 tokio = { workspace = true, features = ["full", "test-util"] }
+ts-rs = { workspace = true }
 
 [build-dependencies]
 flate2 = "1.1"

@@ -1,0 +1,47 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<CameraControl>(path)"
+input_file: api/requests/camera_control/cockpit_white_balance.json
+---
+CameraControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: SetImageAdjustmentEx(
+        AdvancedParameterSetting {
+            mirror: None,
+            flip: None,
+            power_freq: None,
+            color_black: None,
+            infr_detect_mode: None,
+            sens_day_to_night: None,
+            sens_night_to_day: None,
+            infr_day_h: None,
+            infr_day_m: None,
+            infr_night_h: None,
+            infr_night_m: None,
+            lens_correction: None,
+            wdr_level: None,
+            ircut_level: None,
+            ldr_level: None,
+            led_control_mode: None,
+            lamp_type: None,
+            led_control_avail: None,
+            ir_level: None,
+            led_level: None,
+            led_control: None,
+            auto_iris: None,
+            iris_level: None,
+            noise_reduction: None,
+            wdr_sensor: None,
+            wdr_level_sensor: None,
+            hlc_enable: None,
+            low_farme_rate: None,
+            _2d_nr_level: None,
+            anti_flicker: None,
+            scene_mode: None,
+            once_awb: Some(
+                1,
+            ),
+            set_default: None,
+        },
+    ),
+}

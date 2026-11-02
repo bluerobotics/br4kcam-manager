@@ -1,0 +1,52 @@
+{
+  "camera_uuid": "5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34",
+  "action": "setActuatorsConfig",
+  "json": {
+    "parameters": {
+      "camera_id": "CAM1",
+      "focus_channel": "SERVO10",
+      "focus_channel_min": 1100,
+      "focus_channel_trim": 1500,
+      "focus_channel_max": 1900,
+      "focus_margin_gain": 1.5,
+      "script_function": "SCRIPT1",
+      "script_channel": "SERVO16",
+      "script_channel_min": 1100,
+      "script_channel_trim": 1500,
+      "script_channel_max": 1900,
+      "enable_focus_and_zoom_correlation": true,
+      "zoom_channel": "SERVO11",
+      "zoom_channel_min": 1100,
+      "zoom_channel_trim": 1500,
+      "zoom_channel_max": 1900,
+      "tilt_channel": "SERVO12",
+      "tilt_channel_min": 1100,
+      "tilt_channel_trim": 1500,
+      "tilt_channel_max": 1900,
+      "tilt_channel_reversed": false,
+      "tilt_mnt_type": "Servo",
+      "tilt_mnt_pitch_min": -90,
+      "tilt_mnt_pitch_max": 90
+    },
+    "closest_points": [
+      {
+        "zoom": 1000,
+        "focus": 1200
+      },
+      {
+        "zoom": 1900,
+        "focus": 1450
+      }
+    ],
+    "furthest_points": [
+      {
+        "zoom": 1000,
+        "focus": 1100
+      },
+      {
+        "zoom": 1900,
+        "focus": 1300
+      }
+    ]
+  }
+}

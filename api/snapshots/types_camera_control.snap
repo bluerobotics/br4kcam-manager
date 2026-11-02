@@ -1,0 +1,196 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types| types.visit::<CameraControl>())"
+---
+export type AdvancedDisplay2dNrLevelValue = 0 /* Low */ | 1 /* Middle */ | 2 /* High */;
+
+export type AdvancedDisplayAntiflickerValue = 0 /* Close */ | 1 /* Auto */ | 2 /* _50HZ */ | 3 /* _60HZ */;
+
+export type AdvancedDisplayAutoIrisValue = 0 /* Open */ | 1 /* Close */ | 2 /* Manual */;
+
+export type AdvancedDisplayColorBlackValue = 0 /* Color */ | 1 /* Auto */;
+
+export type AdvancedDisplayFlipValue = 0 /* Open */ | 1 /* Close */;
+
+export type AdvancedDisplayHlcEnableValue = 0 /* Close */ | 1 /* Open */;
+
+export type AdvancedDisplayIRCUTLevelValue = 0 /* LowLevel */ | 1 /* HighLevel */;
+
+export type AdvancedDisplayInfrDetectModeValue = 0 /* VideoDetection */ | 1 /* TimeControl */ | 2 /* PhotosensitiveDetection */;
+
+export type AdvancedDisplayLDRLevelValue = 0 /* LowLevel */ | 1 /* HighLevel */;
+
+export type AdvancedDisplayLampTypeValue = 0 /* InfraredLamp */ | 1 /* WhiteLight */ | 2 /* Auto */;
+
+export type AdvancedDisplayLedControlAvailValue = 0 /* LowLevel */ | 1 /* HighLevel */;
+
+export type AdvancedDisplayLedControlValue = 0 /* Auto */ | 1 /* Open */ | 2 /* Close */;
+
+export type AdvancedDisplayLensCorrectionValue = 0 /* Open */ | 1 /* Close */;
+
+export type AdvancedDisplayLightControlModeValue = 0 /* ElectricalLevel */ | 1 /* PWM */;
+
+export type AdvancedDisplayLowFramerateValue = 0 /* Close */ | 1 /* Open */;
+
+export type AdvancedDisplayMirrorValue = 0 /* Open */ | 1 /* Close */;
+
+export type AdvancedDisplayNoiseReductionValue = 0 /* Close */ | 1 /* Low */ | 2 /* Middle */ | 3 /* High */;
+
+export type AdvancedDisplayPowerFreqValue = 0 /* NTSC */ | 1 /* PAL */;
+
+export type AdvancedDisplaySceneModeValue = 0 /* IPC */ | 1 /* FaceCapture */ | 2 /* LicensePlateCapture */;
+
+export type AdvancedDisplayWDRSensorValue = 0 /* Close */ | 1 /* Open */;
+
+export type AdvancedParameterSetting = {
+    mirror: AdvancedDisplayMirrorValue | null,
+    flip: AdvancedDisplayFlipValue | null,
+    power_freq: AdvancedDisplayPowerFreqValue | null,
+    color_black: AdvancedDisplayColorBlackValue | null,
+    infr_detect_mode: AdvancedDisplayInfrDetectModeValue | null,
+    sens_day_to_night: number | null,
+    sens_night_to_day: number | null,
+    infr_day_h: number | null,
+    infr_day_m: number | null,
+    infr_night_h: number | null,
+    infr_night_m: number | null,
+    lens_correction: AdvancedDisplayLensCorrectionValue | null,
+    wdr_level: number | null,
+    ircut_level: AdvancedDisplayIRCUTLevelValue | null,
+    ldr_level: AdvancedDisplayLDRLevelValue | null,
+    led_control_mode: AdvancedDisplayLightControlModeValue | null,
+    lamp_type: AdvancedDisplayLampTypeValue | null,
+    led_control_avail: AdvancedDisplayLedControlAvailValue | null,
+    ir_level: number | null,
+    led_level: number | null,
+    led_control: AdvancedDisplayLedControlValue | null,
+    auto_iris: AdvancedDisplayAutoIrisValue | null,
+    irisLevel: number | null,
+    noiseReduction: AdvancedDisplayNoiseReductionValue | null,
+    wdr_sensor: AdvancedDisplayWDRSensorValue | null,
+    wdr_level_sensor: number | null,
+    hlc_enable: AdvancedDisplayHlcEnableValue | null,
+    low_farme_rate: AdvancedDisplayLowFramerateValue | null,
+    _2DNR_level: AdvancedDisplay2dNrLevelValue | null,
+    anti_flicker: AdvancedDisplayAntiflickerValue | null,
+    scene_mode: AdvancedDisplaySceneModeValue | null,
+    onceAWB: number | null,
+    set_default: number | null,
+};
+
+export type BaseAntiFogValue = 0 /* Close */ | 1 /* Open */;
+
+export type BaseAutoExposureStrategyModeValue = 0 /* HighLightPriority */ | 1 /* LowLightPriority */;
+
+export type BaseAutoGainModeValue = 0 /* Auto */ | 1 /* Manual */;
+
+export type BaseAutoWhiteBalanceModeValue = 0 /* Auto */ | 1 /* Manual */;
+
+export type BaseAutoWhiteBalanceSceneValue = 0 /* Scene1 */ | 1 /* Scene2 */;
+
+export type BaseExposureModeValue = 0 /* Auto */ | 1 /* Manual */;
+
+export type BaseExposureTimeValue = 12 /* _12 */ | 25 /* _25 */ | 30 /* _30 */ | 50 /* _50 */ | 60 /* _60 */ | 100 /* _100 */ | 200 /* _200 */ | 400 /* _400 */ | 800 /* _800 */ | 1000 /* _1000 */ | 2000 /* _2000 */ | 4000 /* _4000 */ | 8000 /* _8000 */ | 10000 /* _10000 */ | 34464 /* _34464 */;
+
+export type BaseFrameTurboValue = 0 /* Close */ | 1 /* HighFrameRates */ | 2 /* UltraHighFrameRates */;
+
+export type BaseManualAGainEnableValue = 0 /* Close */ | 1 /* Open */;
+
+export type BaseManualDGainEnableValue = 0 /* Close */ | 1 /* Open */;
+
+export type BaseMaxExposureValue = 12 /* _12 */ | 25 /* _25 */ | 30 /* _30 */ | 50 /* _50 */ | 60 /* _60 */ | 100 /* _100 */ | 200 /* _200 */ | 400 /* _400 */ | 800 /* _800 */ | 1000 /* _1000 */ | 2000 /* _2000 */ | 4000 /* _4000 */ | 8000 /* _8000 */;
+
+export type BaseParameterSetting = {
+    hue: number | null,
+    brightness: number | null,
+    sharpness: number | null,
+    contrast: number | null,
+    saturation: number | null,
+    gamma: number | null,
+    blc_level: number | null,
+    max_exposure: BaseMaxExposureValue | null,
+    set_default: number | null,
+    antiFog: BaseAntiFogValue | null,
+    frameTurbo_pro: BaseFrameTurboValue | null,
+    sceneMode: BaseSceneModeValue | null,
+    AE_strategy_mode: BaseAutoExposureStrategyModeValue | null,
+    auto_exposureEx: BaseExposureModeValue | null,
+    exposure_time: BaseExposureTimeValue | null,
+    auto_awb: BaseAutoWhiteBalanceModeValue | null,
+    awb_red: number | null,
+    awb_green: number | null,
+    awb_blue: number | null,
+    awb_auto_mode: BaseAutoWhiteBalanceSceneValue | null,
+    awb_style_red: number | null,
+    awb_style_green: number | null,
+    awb_style_blue: number | null,
+    auto_gain_mode: BaseAutoGainModeValue | null,
+    auto_DGain_max: number | null,
+    auto_AGain_max: number | null,
+    max_sys_gain: number | null,
+    manual_AGain_enable: BaseManualAGainEnableValue | null,
+    manual_AGain: number | null,
+    manual_DGain_enable: BaseManualDGainEnableValue | null,
+    manual_DGain: number | null,
+    rotate: BaseRotateValue | null,
+};
+
+export type BaseRotateValue = 0 /* _0 */ | 1 /* _90 */ | 2 /* _180 */ | 3 /* _270 */;
+
+export type BaseSceneModeValue = 0 /* Off */ | 1 /* FaceCapture */ | 2 /* LicensePlateCapture */;
+
+export type CameraControl = {
+    camera_uuid: string,
+} & ({
+    "action": "getSysConfig"
+} | {
+    "action": "getImageAdjustment"
+} | {
+    "action": "getImageAdjustmentEx"
+} | {
+    "action": "getVencConf",
+    "json": VideoParameterSettings
+} | {
+    "action": "setImageAdjustment",
+    "json": BaseParameterSetting
+} | {
+    "action": "setImageAdjustmentEx",
+    "json": AdvancedParameterSetting
+} | {
+    "action": "setImageAdjustmentExAll",
+    "json": AdvancedParameterSetting
+} | {
+    "action": "setVencConf",
+    "json": VideoParameterSettings
+} | {
+    "action": "restart"
+} | {
+    "action": "setRecommendedCameraSettings"
+});
+
+export type VideoChannelValue = 0 /* MainStream */ | 1 /* AuxiliaryStream */ | 2 /* ThirdStream */;
+
+export type VideoEncodeTypeValue = 1 /* H264 */ | 5 /* H265 */;
+
+export type VideoEncodingProfileValue = 0 /* Baseline */ | 1 /* MainProfile */ | 2 /* HighProfile */;
+
+export type VideoParameterSettings = {
+    channel: VideoChannelValue | null,
+    encode_profile: VideoEncodingProfileValue | null,
+    encode_type: VideoEncodeTypeValue | null,
+    pixel_list: Array<VideoResolutionValue> | null,
+    pic_width: number | null,
+    pic_height: number | null,
+    rc_mode: VideoRcModeValue | null,
+    bitrate: number | null,
+    max_framerate: number | null,
+    frame_rate: number | null,
+    gop: number | null,
+};
+
+export type VideoRcModeValue = 0 /* VariableBitRate */ | 1 /* ConstantBitRate */;
+
+export type VideoResolutionValue = {
+    width: number,
+    height: number,
+};

@@ -1,0 +1,93 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types|\n{\n    types.visit::<WsRequest>(); types.visit::<WsResponse>();\n    types.visit::<WsEvent>(); types.visit::<WsClientMessage>();\n    types.visit::<CameraStateEvent>(); types.visit::<ConnectionStats>();\n})"
+---
+export type CameraConnectivity = "unknown" | "online" | "unreachable" | "unresponsive" | "missing";
+
+export type CameraStateEvent = {
+    camera_uuid: string,
+    actuators_default_config?: unknown,
+    actuators_config?: unknown,
+    actuators_state?: unknown,
+    actuators_configured?: boolean,
+    video_parameters?: unknown,
+    base_parameters?: unknown,
+    advanced_parameters?: unknown,
+    ui?: CameraUiState,
+};
+
+export type CameraUiState = {
+    loading: boolean,
+    loading_message?: string,
+    rebooting: boolean,
+    error_dialog?: string,
+    warning_toast?: string,
+    one_push_awb?: OnePushAwbStatus,
+    connectivity: CameraConnectivity,
+    stream_error?: string,
+    onvif_auth_error?: string,
+    setup_progress?: SetupProgress,
+    setup_result?: SetupResult,
+};
+
+export type ConnectionStats = {
+    connected: boolean,
+    since: string,
+    clients_connected: number,
+    this_upload_kbps: number,
+    this_download_kbps: number,
+    total_upload_kbps: number,
+    total_download_kbps: number,
+};
+
+export type OnePushAwbPhase = "running" | "cooldown";
+
+export type OnePushAwbStatus = {
+    phase: OnePushAwbPhase,
+};
+
+export type SetupProgress = {
+    step: number,
+    total: number,
+    label: string,
+};
+
+export type SetupResult = {
+    changes: Array<string>,
+    forced: boolean,
+    error?: string,
+};
+
+export type UiDismissField = "error_dialog" | "warning_toast" | "setup_result";
+
+export type WsClientMessage = {
+    "type": "subscribe",
+    camera_uuid: string,
+} | {
+    "type": "unsubscribe",
+    camera_uuid: string,
+} | {
+    "type": "ui_dismiss",
+    camera_uuid: string,
+    field: UiDismissField,
+};
+
+export type WsEvent = {
+    type: "event",
+    event: string,
+    body: unknown,
+};
+
+export type WsRequest = {
+    id: number,
+    method: string,
+    path: string,
+    body?: unknown,
+};
+
+export type WsResponse = {
+    type: "response",
+    id: number,
+    status: number,
+    body: unknown,
+};

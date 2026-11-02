@@ -1,0 +1,9 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<ActuatorsControl>(path)"
+input_file: api/requests/autopilot_control/get_actuators_config.json
+---
+ActuatorsControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: GetActuatorsConfig,
+}

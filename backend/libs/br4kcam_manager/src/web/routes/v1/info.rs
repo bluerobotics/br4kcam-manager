@@ -34,7 +34,7 @@ pub fn router() -> Router {
 }
 
 #[instrument(level = "trace")]
-async fn info() -> Json<Info> {
+pub async fn info() -> Json<Info> {
     Json(Info {
         version: 0,
         service: InfoContent {

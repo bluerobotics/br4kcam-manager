@@ -1,0 +1,19 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "blueos::ServerMetadata::default()"
+---
+{
+  "name": "4K Cam Manager",
+  "description": "The official management interface for 4K Cam",
+  "icon": "mdi-camera-outline",
+  "company": "BlueRobotics",
+  "version": "[version]",
+  "webpage": "https://github.com/BlueRobotics/br4kcam-manager",
+  "api": "/docs",
+  "avoid_iframes": false,
+  "new_page": false,
+  "works_in_relative_paths": true,
+  "extras": {
+    "cockpit": "/cockpit_extras.json"
+  }
+}

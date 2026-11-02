@@ -1,0 +1,89 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types| types.visit::<ActuatorsControl>())"
+---
+export type ActuatorsConfig = {
+    parameters: ActuatorsParametersConfig | null,
+    closest_points: FocusZoomPoints | null,
+    furthest_points: FocusZoomPoints | null,
+};
+
+export type ActuatorsControl = {
+    camera_uuid: string,
+} & ({
+    "action": "exportLuaScript"
+} | {
+    "action": "getActuatorsState"
+} | {
+    "action": "setActuatorsState",
+    "json": ActuatorsState
+} | {
+    "action": "getActuatorsDefaultConfig"
+} | {
+    "action": "getActuatorsConfig"
+} | {
+    "action": "setActuatorsConfig",
+    "json": ActuatorsConfig
+} | {
+    "action": "resetActuatorsConfig"
+} | {
+    "action": "forceResetActuatorsConfig"
+} | {
+    "action": "previewResetActuatorsConfig"
+} | {
+    "action": "forgetActuatorsConfig"
+} | {
+    "action": "acceptParameterDrifts",
+    "json": Array<string>
+} | {
+    "action": "restoreParameterDrifts",
+    "json": Array<string>
+});
+
+export type ActuatorsParametersConfig = {
+    camera_id: CameraID | null,
+    focus_channel: ServoChannel | null,
+    focus_channel_min: number | null,
+    focus_channel_trim: number | null,
+    focus_channel_max: number | null,
+    focus_margin_gain: number | null,
+    script_function: ScriptFunction | null,
+    script_channel: ServoChannel | null,
+    script_channel_min: number | null,
+    script_channel_trim: number | null,
+    script_channel_max: number | null,
+    enable_focus_and_zoom_correlation: boolean | null,
+    zoom_channel: ServoChannel | null,
+    zoom_channel_min: number | null,
+    zoom_channel_trim: number | null,
+    zoom_channel_max: number | null,
+    tilt_channel: ServoChannel | null,
+    tilt_channel_min: number | null,
+    tilt_channel_trim: number | null,
+    tilt_channel_max: number | null,
+    tilt_channel_reversed: boolean | null,
+    tilt_mnt_type: MountType | null,
+    tilt_mnt_pitch_min: number | null,
+    tilt_mnt_pitch_max: number | null,
+};
+
+export type ActuatorsState = {
+    focus: number | null,
+    zoom: number | null,
+    tilt: number | null,
+};
+
+export type CameraID = "CAM1" | "CAM2";
+
+export type FocusZoomPoint = {
+    zoom: number,
+    focus: number,
+};
+
+export type FocusZoomPoints = Array<FocusZoomPoint>;
+
+export type MountType = "Servo" | "BrushlessPWM";
+
+export type ScriptFunction = "SCRIPT1" | "SCRIPT2" | "SCRIPT3" | "SCRIPT4" | "SCRIPT5" | "SCRIPT6" | "SCRIPT7" | "SCRIPT8" | "SCRIPT9" | "SCRIPT10" | "SCRIPT11" | "SCRIPT12" | "SCRIPT13" | "SCRIPT14" | "SCRIPT15" | "SCRIPT16";
+
+export type ServoChannel = "SERVO1" | "SERVO2" | "SERVO3" | "SERVO4" | "SERVO5" | "SERVO6" | "SERVO7" | "SERVO8" | "SERVO9" | "SERVO10" | "SERVO11" | "SERVO12" | "SERVO13" | "SERVO14" | "SERVO15" | "SERVO16" | "SERVO17" | "SERVO18" | "SERVO19" | "SERVO20" | "SERVO21" | "SERVO22" | "SERVO23" | "SERVO24" | "SERVO25" | "SERVO26" | "SERVO27" | "SERVO28" | "SERVO29" | "SERVO30" | "SERVO31" | "SERVO32";

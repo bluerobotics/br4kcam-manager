@@ -1,0 +1,50 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types| types.visit::<SystemHealth>())"
+---
+export type AutopilotHealth = "unknown" | "endpoint_setup_failed" | "mavlink_down" | "autopilot_offline" | "unresponsive" | "syncing" | "online";
+
+export type Diagnostics = {
+    param_encoding?: string,
+    mavlink_reconnects: number,
+    mavlink_frames_lagged: number,
+    state_events_lagged: number,
+    mcm_consecutive_failures: number,
+    script_reloads: number,
+    last_frame_age_ms?: number,
+    last_heartbeat_age_ms?: number,
+    last_servo_age_ms?: number,
+    backend_version: string,
+    settings_error?: string,
+};
+
+export type ExpectedCamera = {
+    uuid: string,
+    last_hostname?: string,
+};
+
+export type LuaScriptStatus = "unknown" | "ok" | "missing" | "outdated" | "failing";
+
+export type McmHealth = "unknown" | "online" | "down";
+
+export type ParameterDrift = {
+    name: string,
+    expected: number,
+    actual: number,
+    adoptable: boolean,
+};
+
+export type SystemHealth = {
+    mcm: McmHealth,
+    mcm_detail?: string,
+    cameras_discovered: number,
+    expected_missing: Array<ExpectedCamera>,
+    autopilot: AutopilotHealth,
+    autopilot_detail?: string,
+    vehicle_armed: boolean,
+    lua_scripting_disabled: boolean,
+    lua_script: LuaScriptStatus,
+    lua_script_detail?: string,
+    parameter_drifts?: Array<ParameterDrift>,
+    diagnostics: Diagnostics,
+};
