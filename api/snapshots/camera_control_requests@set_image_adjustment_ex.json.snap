@@ -1,0 +1,111 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<CameraControl>(path)"
+input_file: api/requests/camera_control/set_image_adjustment_ex.json
+---
+CameraControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: SetImageAdjustmentEx(
+        AdvancedParameterSetting {
+            mirror: Some(
+                Open,
+            ),
+            flip: Some(
+                Open,
+            ),
+            power_freq: Some(
+                NTSC,
+            ),
+            color_black: Some(
+                Color,
+            ),
+            infr_detect_mode: Some(
+                VideoDetection,
+            ),
+            sens_day_to_night: Some(
+                1,
+            ),
+            sens_night_to_day: Some(
+                1,
+            ),
+            infr_day_h: Some(
+                1,
+            ),
+            infr_day_m: Some(
+                1,
+            ),
+            infr_night_h: Some(
+                1,
+            ),
+            infr_night_m: Some(
+                1,
+            ),
+            lens_correction: Some(
+                Open,
+            ),
+            wdr_level: Some(
+                1,
+            ),
+            ircut_level: Some(
+                LowLevel,
+            ),
+            ldr_level: Some(
+                LowLevel,
+            ),
+            led_control_mode: Some(
+                ElectricalLevel,
+            ),
+            lamp_type: Some(
+                InfraredLamp,
+            ),
+            led_control_avail: Some(
+                LowLevel,
+            ),
+            ir_level: Some(
+                1,
+            ),
+            led_level: Some(
+                1,
+            ),
+            led_control: Some(
+                Auto,
+            ),
+            auto_iris: Some(
+                Open,
+            ),
+            iris_level: Some(
+                1,
+            ),
+            noise_reduction: Some(
+                Close,
+            ),
+            wdr_sensor: Some(
+                Close,
+            ),
+            wdr_level_sensor: Some(
+                1,
+            ),
+            hlc_enable: Some(
+                Close,
+            ),
+            low_farme_rate: Some(
+                Close,
+            ),
+            _2d_nr_level: Some(
+                Low,
+            ),
+            anti_flicker: Some(
+                Close,
+            ),
+            scene_mode: Some(
+                IPC,
+            ),
+            once_awb: Some(
+                1,
+            ),
+            set_default: Some(
+                1,
+            ),
+        },
+    ),
+}

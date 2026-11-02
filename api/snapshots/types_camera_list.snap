@@ -1,0 +1,19 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types| types.visit::<Camera>())"
+---
+export type Camera = {
+    uuid: string,
+    hostname: string,
+    streams: { [key in string]?: Stream },
+};
+
+export type Stream = {
+    name: string,
+    source_endpoint: string,
+    stream_endpoints: Array<string>,
+    state: StreamStatusState,
+    error: string | null,
+};
+
+export type StreamStatusState = "running" | "idle" | "stopped" | "unknown";

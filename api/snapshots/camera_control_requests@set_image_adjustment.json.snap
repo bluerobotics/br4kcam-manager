@@ -1,0 +1,108 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<CameraControl>(path)"
+input_file: api/requests/camera_control/set_image_adjustment.json
+---
+CameraControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: SetImageAdjustment(
+        BaseParameterSetting {
+            hue: Some(
+                1,
+            ),
+            brightness: Some(
+                1,
+            ),
+            sharpness: Some(
+                1,
+            ),
+            contrast: Some(
+                1,
+            ),
+            saturation: Some(
+                1,
+            ),
+            gamma: Some(
+                1,
+            ),
+            blc_level: Some(
+                1,
+            ),
+            max_exposure: Some(
+                _12,
+            ),
+            set_default: Some(
+                1,
+            ),
+            anti_fog: Some(
+                Close,
+            ),
+            frame_turbo_pro: Some(
+                Close,
+            ),
+            scene_mode: Some(
+                Off,
+            ),
+            auto_exposure_strategy_mode: Some(
+                HighLightPriority,
+            ),
+            auto_exposure_ex: Some(
+                Auto,
+            ),
+            exposure_time: Some(
+                _12,
+            ),
+            auto_awb: Some(
+                Auto,
+            ),
+            awb_red: Some(
+                1,
+            ),
+            awb_green: Some(
+                1,
+            ),
+            awb_blue: Some(
+                1,
+            ),
+            awb_auto_mode: Some(
+                Scene1,
+            ),
+            awb_style_red: Some(
+                1,
+            ),
+            awb_style_green: Some(
+                1,
+            ),
+            awb_style_blue: Some(
+                1,
+            ),
+            auto_gain_mode: Some(
+                Auto,
+            ),
+            auto_d_gain_max: Some(
+                1,
+            ),
+            auto_a_gain_max: Some(
+                1,
+            ),
+            max_sys_gain: Some(
+                1,
+            ),
+            manual_a_gain_enable: Some(
+                Close,
+            ),
+            manual_a_gain: Some(
+                1,
+            ),
+            manual_d_gain_enable: Some(
+                Close,
+            ),
+            manual_d_gain: Some(
+                1,
+            ),
+            rotate: Some(
+                _0,
+            ),
+        },
+    ),
+}

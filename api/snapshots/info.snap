@@ -1,0 +1,14 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: info
+---
+{
+  "version": 0,
+  "service": {
+    "name": "br4kcam_manager",
+    "version": "[version]",
+    "sha": "[sha]",
+    "build_date": "[build_date]",
+    "authors": "João Antônio Cardoso"
+  }
+}

@@ -1,0 +1,48 @@
+# Endpoints that clients depend on. `cargo test` fails if any of these disappear.
+#
+# Append new endpoints when they become public. Never remove or edit a line: a
+# client somewhere still calls it. See README.md.
+#
+#   HTTP <method> <path>   a route on the HTTP server
+#   WS <method> <path>     a request routed over the WebSocket (`WsRequest`)
+#   EVENT <name>           an event pushed over the WebSocket (`WsEvent.event`)
+
+# HTTP API, versioned
+HTTP GET /v1/info
+HTTP GET /v1/info/full
+HTTP GET /v1/health
+HTTP GET /v1/camera/list
+HTTP POST /v1/camera/control
+HTTP POST /v1/autopilot/control
+HTTP DELETE /v1/settings
+HTTP POST /v1/service/restart
+HTTP GET /v1/register_service
+HTTP GET /v1/cockpit_extras.json
+HTTP GET /v1/ws
+HTTP GET /v1/log
+
+# HTTP API, unversioned (default version, used by BlueOS)
+HTTP GET /info
+HTTP GET /info/full
+HTTP GET /health
+HTTP GET /camera/list
+HTTP POST /camera/control
+HTTP POST /autopilot/control
+HTTP DELETE /settings
+HTTP POST /service/restart
+HTTP GET /register_service
+HTTP GET /cockpit_extras.json
+HTTP GET /ws
+HTTP GET /log
+
+# WebSocket requests
+WS GET /camera/list
+WS POST /camera/control
+WS POST /autopilot/control
+
+# WebSocket events
+EVENT camera/state
+EVENT camera/list
+EVENT camera/subscribe_rejected
+EVENT connection/stats
+EVENT system/health

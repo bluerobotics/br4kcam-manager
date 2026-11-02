@@ -1,0 +1,41 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<CameraControl>(path)"
+input_file: api/requests/camera_control/set_venc_conf.json
+---
+CameraControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: SetVideoParameterSettings(
+        VideoParameterSettings {
+            channel: Some(
+                MainStream,
+            ),
+            encode_profile: Some(
+                HighProfile,
+            ),
+            encode_type: Some(
+                H264,
+            ),
+            pixel_list: None,
+            pic_width: Some(
+                3840,
+            ),
+            pic_height: Some(
+                2160,
+            ),
+            rc_mode: Some(
+                ConstantBitRate,
+            ),
+            bitrate: Some(
+                16384,
+            ),
+            max_framerate: None,
+            frame_rate: Some(
+                30,
+            ),
+            gop: Some(
+                60,
+            ),
+        },
+    ),
+}

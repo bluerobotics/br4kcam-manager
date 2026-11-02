@@ -1,0 +1,628 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "cockpit::extras(&cameras)"
+---
+{
+  "targetSystem": "Cockpit",
+  "targetCockpitApiVersion": "1.0.0",
+  "widgets": [
+    {
+      "name": "4K Cam (192.168.2.10)",
+      "iframeUrl": "/#/?uuid=5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34&cockpit_mode=true",
+      "iconUrl": "/assets/logo.svg",
+      "collapsibleContainerName": "4K Cam (192.168.2.10)",
+      "version": "1.0.0",
+      "startCollapsed": false,
+      "useExtensionPathAsBaseUrl": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "br4kcam_white_balance_all",
+      "name": "4K Cam One-Push White Balance (All)",
+      "type": "http-request",
+      "config": {
+        "name": "4K Cam One-Push White Balance (All)",
+        "url": "http://{{ vehicle-address }}/extensionv2/4kcammanager/v1/camera/control",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "urlParams": {},
+        "body": "{\"action\":\"setImageAdjustmentExAll\",\"json\":{\"onceAWB\":1}}"
+      },
+      "version": "1.0.1",
+      "description": "Triggers one-push white balance on every configured 4K Cam."
+    },
+    {
+      "id": "br4kcam_white_balance_5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34",
+      "name": "4K Cam One-Push White Balance (192.168.2.10)",
+      "type": "http-request",
+      "config": {
+        "name": "4K Cam One-Push White Balance (192.168.2.10)",
+        "url": "http://{{ vehicle-address }}/extensionv2/4kcammanager/v1/camera/control",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "urlParams": {},
+        "body": "{\"action\":\"setImageAdjustmentEx\",\"camera_uuid\":\"5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34\",\"json\":{\"onceAWB\":1}}"
+      },
+      "version": "1.0.1",
+      "description": "Triggers one-push white balance on 192.168.2.10 only."
+    }
+  ],
+  "joystickSuggestions": [
+    {
+      "id": "br4kcam-for-bluerov",
+      "name": "4K Cam on BlueROV",
+      "description": "4K Cam buttons mapping for BlueROV without gripper",
+      "buttonMappingSuggestions": [
+        {
+          "id": "shift",
+          "actionProtocol": "cockpit-modifier-key",
+          "actionName": "Shift",
+          "actionId": "shift",
+          "button": 0,
+          "modifierKey": "regular",
+          "description": "Enable shift modifier"
+        },
+        {
+          "id": "Mode-manual",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode manual",
+          "actionId": "Mode manual",
+          "button": 1,
+          "modifierKey": "regular",
+          "description": "Switch to manual flight mode"
+        },
+        {
+          "id": "Mode-depth-hold",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode depth hold",
+          "actionId": "Mode depth hold",
+          "button": 2,
+          "modifierKey": "regular",
+          "description": "Switch to depth hold mode"
+        },
+        {
+          "id": "Mode-stabilize",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode stabilize",
+          "actionId": "Mode stabilize",
+          "button": 3,
+          "modifierKey": "regular",
+          "description": "Switch to stabilize mode"
+        },
+        {
+          "id": "Disarm",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Disarm",
+          "actionId": "Disarm",
+          "button": 8,
+          "modifierKey": "regular",
+          "description": "Disarm vehicle"
+        },
+        {
+          "id": "Arm",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Arm",
+          "actionId": "Arm",
+          "button": 9,
+          "modifierKey": "regular",
+          "description": "Arm vehicle"
+        },
+        {
+          "id": "Gain-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Gain inc",
+          "actionId": "Gain inc",
+          "button": 12,
+          "modifierKey": "regular",
+          "description": "Increase gain"
+        },
+        {
+          "id": "Gain-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Gain dec",
+          "actionId": "Gain dec",
+          "button": 13,
+          "modifierKey": "regular",
+          "description": "Decrease gain"
+        },
+        {
+          "id": "Lights1-dimmer",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Lights1 dimmer",
+          "actionId": "Lights1 dimmer",
+          "button": 14,
+          "modifierKey": "regular",
+          "description": "Dim lights"
+        },
+        {
+          "id": "Lights1-brighter",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Lights1 brighter",
+          "actionId": "Lights1 brighter",
+          "button": 15,
+          "modifierKey": "regular",
+          "description": "Brighten lights"
+        },
+        {
+          "id": "toggle_bottom_bar",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle bottom bar",
+          "actionId": "toggle_bottom_bar",
+          "button": 16,
+          "modifierKey": "regular",
+          "description": "Toggle bottom UI bar"
+        },
+        {
+          "id": "Mount-tilt-down",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Camera Mount Tilt Down",
+          "actionId": "Mount tilt down",
+          "button": 4,
+          "modifierKey": "regular",
+          "description": "Move camera mount down"
+        },
+        {
+          "id": "Mount-tilt-up",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Camera Mount Tilt Up",
+          "actionId": "Mount tilt up",
+          "button": 5,
+          "modifierKey": "regular",
+          "description": "Move camera mount up"
+        },
+        {
+          "id": "take_snapshot",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Take a Snapshot",
+          "actionId": "take_snapshot",
+          "button": 2,
+          "modifierKey": "shift",
+          "description": "Take a snapshot"
+        },
+        {
+          "id": "Mode-acro",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode acro",
+          "actionId": "Mode acro",
+          "button": 3,
+          "modifierKey": "shift",
+          "description": "Switch to acro flight mode"
+        },
+        {
+          "id": "Trim-pitch-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim pitch inc",
+          "actionId": "Trim pitch inc",
+          "button": 12,
+          "modifierKey": "shift",
+          "description": "Increase pitch trim"
+        },
+        {
+          "id": "Trim-pitch-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim pitch dec",
+          "actionId": "Trim pitch dec",
+          "button": 13,
+          "modifierKey": "shift",
+          "description": "Decrease pitch trim"
+        },
+        {
+          "id": "Trim-roll-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim roll dec",
+          "actionId": "Trim roll dec",
+          "button": 14,
+          "modifierKey": "shift",
+          "description": "Decrease roll trim"
+        },
+        {
+          "id": "Trim-roll-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim roll inc",
+          "actionId": "Trim roll inc",
+          "button": 15,
+          "modifierKey": "shift",
+          "description": "Increase roll trim"
+        },
+        {
+          "id": "toggle_top_bar",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle top bar",
+          "actionId": "toggle_top_bar",
+          "button": 16,
+          "modifierKey": "shift",
+          "description": "Toggle top UI bar"
+        },
+        {
+          "id": "camera-zoom-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom decrease",
+          "actionId": "camera-zoom-decrease",
+          "button": 6,
+          "modifierKey": "shift",
+          "description": "Decrease camera zoom level"
+        },
+        {
+          "id": "camera-zoom-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom increase",
+          "actionId": "camera-zoom-increase",
+          "button": 7,
+          "modifierKey": "shift",
+          "description": "Increase camera zoom level"
+        },
+        {
+          "id": "camera-focus-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus decrease",
+          "actionId": "camera-focus-decrease",
+          "button": 6,
+          "modifierKey": "regular",
+          "description": "Decrease camera focus distance"
+        },
+        {
+          "id": "camera-focus-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus increase",
+          "actionId": "camera-focus-increase",
+          "button": 7,
+          "modifierKey": "regular",
+          "description": "Increase camera focus distance"
+        },
+        {
+          "id": "toggle_recording_all_streams",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle recording all streams",
+          "actionId": "toggle_recording_all_streams",
+          "button": 11,
+          "modifierKey": "regular",
+          "description": "Toggle recording all streams"
+        },
+        {
+          "id": "br4kcam_white_balance_all",
+          "actionProtocol": "cockpit-action",
+          "actionName": "4K Cam One-Push White Balance (All)",
+          "actionId": "br4kcam_white_balance_all",
+          "button": 10,
+          "modifierKey": "regular",
+          "description": "Run One-Push White Balance on all 4K Cam devices"
+        }
+      ],
+      "version": "1.0.0",
+      "targetVehicleTypes": [
+        "MAV_TYPE_SUBMARINE"
+      ]
+    },
+    {
+      "id": "br4kcam-for-bluerov-with-gripper",
+      "name": "4K Cam on BlueROV with gripper",
+      "description": "4K Cam buttons mapping for BlueROV with gripper",
+      "buttonMappingSuggestions": [
+        {
+          "id": "shift",
+          "actionProtocol": "cockpit-modifier-key",
+          "actionName": "Shift",
+          "actionId": "shift",
+          "button": 0,
+          "modifierKey": "regular",
+          "description": "Enable shift modifier"
+        },
+        {
+          "id": "Mode-manual",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode manual",
+          "actionId": "Mode manual",
+          "button": 1,
+          "modifierKey": "regular",
+          "description": "Switch to manual flight mode"
+        },
+        {
+          "id": "Mode-depth-hold",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode depth hold",
+          "actionId": "Mode depth hold",
+          "button": 2,
+          "modifierKey": "regular",
+          "description": "Switch to depth hold mode"
+        },
+        {
+          "id": "Mode-stabilize",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode stabilize",
+          "actionId": "Mode stabilize",
+          "button": 3,
+          "modifierKey": "regular",
+          "description": "Switch to stabilize mode"
+        },
+        {
+          "id": "Disarm",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Disarm",
+          "actionId": "Disarm",
+          "button": 8,
+          "modifierKey": "regular",
+          "description": "Disarm vehicle"
+        },
+        {
+          "id": "Arm",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Arm",
+          "actionId": "Arm",
+          "button": 9,
+          "modifierKey": "regular",
+          "description": "Arm vehicle"
+        },
+        {
+          "id": "Gain-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Gain inc",
+          "actionId": "Gain inc",
+          "button": 12,
+          "modifierKey": "regular",
+          "description": "Increase gain"
+        },
+        {
+          "id": "Gain-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Gain dec",
+          "actionId": "Gain dec",
+          "button": 13,
+          "modifierKey": "regular",
+          "description": "Decrease gain"
+        },
+        {
+          "id": "Lights1-dimmer",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Lights1 dimmer",
+          "actionId": "Lights1 dimmer",
+          "button": 14,
+          "modifierKey": "regular",
+          "description": "Dim lights"
+        },
+        {
+          "id": "Lights1-brighter",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Lights1 brighter",
+          "actionId": "Lights1 brighter",
+          "button": 15,
+          "modifierKey": "regular",
+          "description": "Brighten lights"
+        },
+        {
+          "id": "toggle_bottom_bar",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle bottom bar",
+          "actionId": "toggle_bottom_bar",
+          "button": 16,
+          "modifierKey": "regular",
+          "description": "Toggle bottom UI bar"
+        },
+        {
+          "id": "Mount-tilt-down",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Camera Mount Tilt Down",
+          "actionId": "Mount tilt down",
+          "button": 4,
+          "modifierKey": "regular",
+          "description": "Move camera mount down"
+        },
+        {
+          "id": "Mount-tilt-up",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Camera Mount Tilt Up",
+          "actionId": "Mount tilt up",
+          "button": 5,
+          "modifierKey": "regular",
+          "description": "Move camera mount up"
+        },
+        {
+          "id": "take_snapshot",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Take a Snapshot",
+          "actionId": "take_snapshot",
+          "button": 2,
+          "modifierKey": "shift",
+          "description": "Take a snapshot"
+        },
+        {
+          "id": "Mode-acro",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Mode acro",
+          "actionId": "Mode acro",
+          "button": 3,
+          "modifierKey": "shift",
+          "description": "Switch to acro flight mode"
+        },
+        {
+          "id": "Trim-pitch-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim pitch inc",
+          "actionId": "Trim pitch inc",
+          "button": 12,
+          "modifierKey": "shift",
+          "description": "Increase pitch trim"
+        },
+        {
+          "id": "Trim-pitch-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim pitch dec",
+          "actionId": "Trim pitch dec",
+          "button": 13,
+          "modifierKey": "shift",
+          "description": "Decrease pitch trim"
+        },
+        {
+          "id": "Trim-roll-dec",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim roll dec",
+          "actionId": "Trim roll dec",
+          "button": 14,
+          "modifierKey": "shift",
+          "description": "Decrease roll trim"
+        },
+        {
+          "id": "Trim-roll-inc",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Trim roll inc",
+          "actionId": "Trim roll inc",
+          "button": 15,
+          "modifierKey": "shift",
+          "description": "Increase roll trim"
+        },
+        {
+          "id": "toggle_top_bar",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle top bar",
+          "actionId": "toggle_top_bar",
+          "button": 16,
+          "modifierKey": "shift",
+          "description": "Toggle top UI bar"
+        },
+        {
+          "id": "Actuator-1-max-momentary",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Open Gripper",
+          "actionId": "Actuator 1 max momentary",
+          "button": 4,
+          "modifierKey": "shift",
+          "description": "Open gripper"
+        },
+        {
+          "id": "Actuator-1-min-momentary",
+          "actionProtocol": "mavlink-manual-control",
+          "actionName": "Close Gripper",
+          "actionId": "Actuator 1 min momentary",
+          "button": 5,
+          "modifierKey": "shift",
+          "description": "Close gripper"
+        },
+        {
+          "id": "camera-zoom-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom decrease",
+          "actionId": "camera-zoom-decrease",
+          "button": 6,
+          "modifierKey": "shift",
+          "description": "Decrease camera zoom level"
+        },
+        {
+          "id": "camera-zoom-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom increase",
+          "actionId": "camera-zoom-increase",
+          "button": 7,
+          "modifierKey": "shift",
+          "description": "Increase camera zoom level"
+        },
+        {
+          "id": "camera-focus-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus decrease",
+          "actionId": "camera-focus-decrease",
+          "button": 6,
+          "modifierKey": "regular",
+          "description": "Decrease camera focus distance"
+        },
+        {
+          "id": "camera-focus-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus increase",
+          "actionId": "camera-focus-increase",
+          "button": 7,
+          "modifierKey": "regular",
+          "description": "Increase camera focus distance"
+        },
+        {
+          "id": "toggle_recording_all_streams",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle recording all streams",
+          "actionId": "toggle_recording_all_streams",
+          "button": 11,
+          "modifierKey": "regular",
+          "description": "Toggle recording all streams"
+        },
+        {
+          "id": "br4kcam_white_balance_all",
+          "actionProtocol": "cockpit-action",
+          "actionName": "4K Cam One-Push White Balance (All)",
+          "actionId": "br4kcam_white_balance_all",
+          "button": 10,
+          "modifierKey": "regular",
+          "description": "Run One-Push White Balance on all 4K Cam devices"
+        }
+      ],
+      "version": "1.0.0",
+      "targetVehicleTypes": [
+        "MAV_TYPE_SUBMARINE"
+      ]
+    },
+    {
+      "id": "br4kcam-for-any-vehicle-types",
+      "name": "4K Cam on any vehicle types",
+      "description": "Minimal 4K Cam buttons mapping for any vehicle types",
+      "buttonMappingSuggestions": [
+        {
+          "id": "camera-zoom-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom decrease",
+          "actionId": "camera-zoom-decrease",
+          "button": 6,
+          "modifierKey": "shift",
+          "description": "Decrease camera zoom level"
+        },
+        {
+          "id": "camera-zoom-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera zoom increase",
+          "actionId": "camera-zoom-increase",
+          "button": 7,
+          "modifierKey": "shift",
+          "description": "Increase camera zoom level"
+        },
+        {
+          "id": "camera-focus-decrease",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus decrease",
+          "actionId": "camera-focus-decrease",
+          "button": 6,
+          "modifierKey": "regular",
+          "description": "Decrease camera focus distance"
+        },
+        {
+          "id": "camera-focus-increase",
+          "actionProtocol": "data-lake-variable",
+          "actionName": "Camera focus increase",
+          "actionId": "camera-focus-increase",
+          "button": 7,
+          "modifierKey": "regular",
+          "description": "Increase camera focus distance"
+        },
+        {
+          "id": "toggle_recording_all_streams",
+          "actionProtocol": "cockpit-action",
+          "actionName": "Toggle recording all streams",
+          "actionId": "toggle_recording_all_streams",
+          "button": 11,
+          "modifierKey": "regular",
+          "description": "Toggle recording all streams"
+        },
+        {
+          "id": "br4kcam_white_balance_all",
+          "actionProtocol": "cockpit-action",
+          "actionName": "4K Cam One-Push White Balance (All)",
+          "actionId": "br4kcam_white_balance_all",
+          "button": 10,
+          "modifierKey": "regular",
+          "description": "Run One-Push White Balance on all 4K Cam devices"
+        }
+      ],
+      "version": "1.0.0",
+      "targetVehicleTypes": []
+    }
+  ]
+}

@@ -726,7 +726,7 @@ fn message_len(message: &Message) -> u64 {
 }
 
 #[instrument(level = "debug", skip_all, fields(id = request.id, method = %request.method, path = %request.path))]
-async fn handle_request(request: WsRequest) -> WsResponse {
+pub async fn handle_request(request: WsRequest) -> WsResponse {
     let id = request.id;
 
     match (request.method.as_str(), request.path.as_str()) {

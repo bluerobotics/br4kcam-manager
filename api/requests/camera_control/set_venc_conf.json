@@ -1,0 +1,15 @@
+{
+  "camera_uuid": "5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34",
+  "action": "setVencConf",
+  "json": {
+    "channel": 0,
+    "encode_profile": 2,
+    "encode_type": 1,
+    "pic_width": 3840,
+    "pic_height": 2160,
+    "rc_mode": 1,
+    "bitrate": 16384,
+    "frame_rate": 30,
+    "gop": 60
+  }
+}
