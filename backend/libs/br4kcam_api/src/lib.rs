@@ -435,6 +435,30 @@ pub struct WsEvent {
     pub body: Value,
 }
 
+/// Names of the [`WsEvent`]s the backend pushes. Clients dispatch on these strings,
+/// so they are part of the public API.
+pub mod events {
+    /// Body: [`CameraStateEvent`](super::CameraStateEvent).
+    pub const CAMERA_STATE: &str = "camera/state";
+    /// Body: the camera map, as answered by `GET /camera/list`.
+    pub const CAMERA_LIST: &str = "camera/list";
+    /// Body: `{ camera_uuid, reason }`.
+    pub const CAMERA_SUBSCRIBE_REJECTED: &str = "camera/subscribe_rejected";
+    /// Body: [`ConnectionStats`](super::ConnectionStats).
+    pub const CONNECTION_STATS: &str = "connection/stats";
+    /// Body: [`SystemHealth`](super::SystemHealth).
+    pub const SYSTEM_HEALTH: &str = "system/health";
+
+    /// Every event above.
+    pub const ALL: &[&str] = &[
+        CAMERA_STATE,
+        CAMERA_LIST,
+        CAMERA_SUBSCRIBE_REJECTED,
+        CONNECTION_STATS,
+        SYSTEM_HEALTH,
+    ];
+}
+
 impl WsResponse {
     /// Builds a `response` message for the given request id.
     pub fn new(id: u32, status: u16, body: Value) -> Self {
