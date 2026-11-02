@@ -1,0 +1,46 @@
+name: API Contract
+
+# The contract itself is enforced by `cargo test` (see api/README.md). This workflow
+# makes sure a pull request cannot quietly rewrite the contract to match the code.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  api-contract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Recorded requests and endpoints are append-only
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'breaking-api-change') }}
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          rewritten=$(git diff --name-only --diff-filter=DMR "$BASE" HEAD -- api/requests)
+          removed=$(git diff -U0 "$BASE" HEAD -- api/endpoints.txt | grep -E '^-[^-]' | grep -vE '^-[[:space:]]*(#|$)' || true)
+
+          if [ -n "$rewritten" ] || [ -n "$removed" ]; then
+            echo "::error::Clients still send these requests or call these endpoints. Breaking changes need the 'breaking-api-change' label (see api/README.md)."
+            [ -n "$rewritten" ] && printf 'Edited or removed recorded requests:\n%s\n' "$rewritten"
+            [ -n "$removed" ] && printf 'Removed endpoints:\n%s\n' "$removed"
+            exit 1
+          fi
+
+      - name: Contract changes are acknowledged
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'api-change') && !contains(github.event.pull_request.labels.*.name, 'breaking-api-change') }}
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "$BASE" HEAD -- api ':!api/README.md')
+
+          if [ -n "$changed" ]; then
+            echo "::error::This pull request changes the public API contract. Review the diff below, then add the 'api-change' label (see api/README.md)."
+            git diff --stat "$BASE" HEAD -- api ':!api/README.md'
+            exit 1
+          fi
