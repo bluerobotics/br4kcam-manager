@@ -157,17 +157,19 @@ pub enum CockpitModifierKeyOption {
 pub async fn cockpit_extras() -> impl IntoResponse {
     let cameras = mcm_client::cameras().await;
 
-    let cockpit_extras = CockpitExtras {
-        target_system: "Cockpit".to_string(),
-        target_cockpit_api_version: "1.0.0".to_string(),
-        widgets: widgets(&cameras),
-        actions: actions(&cameras),
-        joystick_suggestions: joystick_suggestions(&cameras),
-    };
-
-    let json = serde_json::to_string_pretty(&cockpit_extras).unwrap();
+    let json = serde_json::to_string_pretty(&extras(&cameras)).unwrap();
 
     json.into_response()
+}
+
+pub fn extras(cameras: &Cameras) -> CockpitExtras {
+    CockpitExtras {
+        target_system: "Cockpit".to_string(),
+        target_cockpit_api_version: "1.0.0".to_string(),
+        widgets: widgets(cameras),
+        actions: actions(cameras),
+        joystick_suggestions: joystick_suggestions(cameras),
+    }
 }
 
 fn widgets(cameras: &Cameras) -> Vec<CockpitIframeWidget> {
