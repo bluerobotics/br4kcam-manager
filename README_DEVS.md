@@ -87,3 +87,8 @@ docker run --rm -it --net=host br4kcam-manager:latest --help
 - Some MAVLink-compatible autopilot firmware running with version `>=4.7.0`
 - Some MAVLink router endpoint, configurable using the `--mavlink` command line argument.
 
+## Public API
+
+Other projects depend on this API, and [api/](api/README.md) pins it: `cargo test` fails
+when it changes by accident. Read [api/README.md](api/README.md) before changing routes or
+wire types.
