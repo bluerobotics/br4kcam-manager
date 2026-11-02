@@ -12,7 +12,7 @@ use axum::{
     response::Response,
 };
 use br4kcam_api::{
-    CameraStateEvent, SystemHealth, WsClientMessage, WsEvent, WsRequest, WsResponse,
+    CameraStateEvent, SystemHealth, WsClientMessage, WsEvent, WsRequest, WsResponse, events,
 };
 use br4kcam_commands::CameraControl;
 use futures::{SinkExt, StreamExt};
@@ -568,7 +568,7 @@ fn state_event_text(event: &CameraStateEvent) -> Option<String> {
             return None;
         }
     };
-    match serde_json::to_string(&WsEvent::new("camera/state", body)) {
+    match serde_json::to_string(&WsEvent::new(events::CAMERA_STATE, body)) {
         Ok(text) => Some(text),
         Err(error) => {
             warn!("Failed serializing camera/state event: {error}");
@@ -590,7 +590,7 @@ async fn send_camera_list_event(
             return Err(SendFailure::Serialize);
         }
     };
-    let text = match serde_json::to_string(&WsEvent::new("camera/list", body)) {
+    let text = match serde_json::to_string(&WsEvent::new(events::CAMERA_LIST, body)) {
         Ok(text) => text,
         Err(error) => {
             warn!("Failed serializing camera/list event: {error}");
@@ -610,7 +610,7 @@ fn connection_stats_text(connection_id: ConnectionId) -> Option<String> {
             return None;
         }
     };
-    match serde_json::to_string(&WsEvent::new("connection/stats", body)) {
+    match serde_json::to_string(&WsEvent::new(events::CONNECTION_STATS, body)) {
         Ok(text) => Some(text),
         Err(error) => {
             warn!("Failed serializing connection/stats event: {error}");
@@ -628,7 +628,7 @@ fn system_health_event_text(health: &SystemHealth) -> Option<String> {
             return None;
         }
     };
-    match serde_json::to_string(&WsEvent::new("system/health", body)) {
+    match serde_json::to_string(&WsEvent::new(events::SYSTEM_HEALTH, body)) {
         Ok(text) => Some(text),
         Err(error) => {
             warn!("Failed serializing system/health event: {error}");
@@ -661,7 +661,7 @@ fn queue_subscribe_rejected(
         "camera_uuid": camera_uuid,
         "reason": reason,
     });
-    match serde_json::to_string(&WsEvent::new("camera/subscribe_rejected", body)) {
+    match serde_json::to_string(&WsEvent::new(events::CAMERA_SUBSCRIBE_REJECTED, body)) {
         Ok(text) => queue_text(connection_id, response_tx, close_notify, text),
         Err(error) => {
             warn!(%connection_id, "Failed serializing subscribe_rejected: {error:?}");
