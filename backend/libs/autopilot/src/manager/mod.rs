@@ -25,7 +25,7 @@ use crate::{
     api::{self, ServoChannel},
     health::ObserveSource,
     mavlink::{self, MavlinkComponent},
-    parameters::{ActuatorsParameters, ParamType},
+    parameters::ActuatorsParameters,
 };
 
 pub static MANAGER: OnceCell<RwLock<Manager>> = OnceCell::new();
@@ -389,18 +389,6 @@ impl Manager {
         true
     }
 
-    /// The saved setup of `camera_uuid`, starting from the defaults when it has none yet.
-    async fn saved_parameters(camera_uuid: &Uuid) -> Result<ActuatorsParameters> {
-        let mut manager = MANAGER.get().context("Not available")?.write().await;
-        Ok(manager
-            .settings
-            .actuators
-            .entry(*camera_uuid)
-            .or_default()
-            .parameters
-            .clone())
-    }
-
     /// Puts back the setup the camera had before a failed apply, or forgets the camera when it
     /// had none. The measured state is kept, it does not come from the apply.
     async fn restore_saved_setup(camera_uuid: &Uuid, saved: Option<CameraActuators>) -> Result<()> {
@@ -505,58 +493,6 @@ impl Manager {
         }
         Ok(reboot)
     }
-}
-
-/// Writes `value` to `param_name` when `force` is set or the autopilot holds another value.
-/// Returns whether it wrote.
-pub(super) async fn write_param(param_name: &str, value: ParamType, force: bool) -> Result<bool> {
-    let mavlink = crate::mavlink::component()?;
-    let encoding = mavlink.encoding().await;
-    let mut param = mavlink.get_param(param_name, false).await?;
-    let old_value = param.value;
-    param.value.set_value(value, encoding)?;
-    let new_value = param.value;
-
-    if !force && old_value == new_value {
-        trace!("Parameter {param_name:?} skipped");
-        return Ok(false);
-    }
-
-    mavlink
-        .set_param(param)
-        .await
-        .with_context(|| format!("Failed setting parameter {param_name}"))?;
-    if old_value != new_value {
-        info!("{param_name} changed from {old_value:?} to {new_value:?}");
-    }
-    Ok(true)
-}
-
-/// Clears `SERVOn_REVERSED` on a channel a role with no reversed setting takes, so the channel
-/// does not stay reversed from the role that had it before.
-pub(super) async fn clear_channel_reversed(channel: ServoChannel) -> Result<()> {
-    let param_name = format!("SERVO{}_REVERSED", channel as u8);
-    write_param(&param_name, ParamType::UINT8(0), false)
-        .await
-        .with_context(|| format!("Failed clearing {param_name}"))?;
-    Ok(())
-}
-
-/// Updates the saved setup of `camera_uuid`, starting from the defaults when it has none yet.
-pub(super) async fn store_parameters(
-    camera_uuid: &Uuid,
-    update: impl FnOnce(&mut ActuatorsParameters),
-) -> Result<()> {
-    let mut manager = MANAGER.get().context("Not available")?.write().await;
-    update(
-        &mut manager
-            .settings
-            .actuators
-            .entry(*camera_uuid)
-            .or_default()
-            .parameters,
-    );
-    Ok(())
 }
 
 /// Constructs our manager, Should be done inside main
