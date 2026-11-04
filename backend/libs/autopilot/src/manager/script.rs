@@ -177,8 +177,10 @@ impl Manager {
         overwrite: bool,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
+        let mut channel_moved = false;
 
         if let Some(channel) = parameters.script_channel {
+            let old_channel = Self::saved_parameters(camera_uuid).await?.script_channel;
             // The script servo input is the values from the CameraFocus
             autopilot_reboot_required |= write_param(
                 &format!("SERVO{}_FUNCTION", channel as u8),
@@ -187,11 +189,17 @@ impl Manager {
             )
             .await
             .context("Failed setting the script channel function")?;
+            channel_moved = old_channel != channel;
             store_parameters(camera_uuid, |stored| stored.script_channel = channel).await?;
         }
 
-        Self::update_script_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
-            .await?;
+        // A channel the role moves to has none of its settings yet.
+        Self::update_script_channel_parameters(
+            camera_uuid,
+            parameters,
+            autopilot_reboot_required || channel_moved,
+        )
+        .await?;
 
         Ok(autopilot_reboot_required)
     }
