@@ -3,6 +3,7 @@ mod camera;
 mod focus;
 mod macros;
 pub(crate) mod owned_parameters;
+pub(crate) mod plan;
 mod script;
 mod tilt;
 mod zoom;
