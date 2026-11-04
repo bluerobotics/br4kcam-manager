@@ -374,26 +374,36 @@ pub(crate) async fn control_inner(
         }
         Action::SetActuatorsConfig(new_config) => {
             let camera_uuid = actuators_control.camera_uuid;
-            let new_config = {
-                let manager = MANAGER.get().context("Not available")?.read().await;
-                let base_config = manager
-                    .settings
-                    .actuators
-                    .get(&camera_uuid)
-                    .map(api::ActuatorsConfig::from)
-                    .unwrap_or(api::ActuatorsConfig::from(&CameraActuators::default()));
-                merge_struct::merge(&base_config, new_config).context("Failing to merge structs")?
-            };
+            // Merged under CONFIG_APPLY, so it starts from the setup a concurrent apply left
+            // instead of undoing it.
+            let merged = std::sync::Mutex::new(None::<api::ActuatorsConfig>);
 
             manager::reboot_outside_apply(
                 Box::pin(async {
+                    let new_config = {
+                        let manager = MANAGER.get().context("Not available")?.read().await;
+                        let base_config = manager
+                            .settings
+                            .actuators
+                            .get(&camera_uuid)
+                            .map(api::ActuatorsConfig::from)
+                            .unwrap_or(api::ActuatorsConfig::from(&CameraActuators::default()));
+                        merge_struct::merge(&base_config, new_config)
+                            .context("Failing to merge structs")?
+                    };
+                    *merged.lock().expect("merged config lock") = Some(new_config.clone());
                     // A camera with no saved setup gets every parameter written by update_config.
                     manager::Manager::update_config(&camera_uuid, &new_config, false).await
                 }),
                 Box::pin(async {
+                    let parameters = merged
+                        .lock()
+                        .expect("merged config lock")
+                        .as_ref()
+                        .and_then(|config| config.parameters.clone());
                     manager::Manager::finalize_config_after_reboot(
                         &camera_uuid,
-                        new_config.parameters.as_ref(),
+                        parameters.as_ref(),
                     )
                     .await
                 }),
