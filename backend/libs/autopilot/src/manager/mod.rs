@@ -1,4 +1,3 @@
-mod calibration;
 mod camera;
 mod focus;
 pub(crate) mod owned_parameters;
