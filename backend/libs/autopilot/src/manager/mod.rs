@@ -259,8 +259,9 @@ impl Manager {
     /// Caller must hold [`CONFIG_APPLY`]. Returns `true` if the autopilot must be
     /// rebooted before [`Self::finalize_config_after_reboot`] (enable/gain + save).
     ///
-    /// When the apply fails, the saved setup goes back to what it was, so a retry writes again
-    /// what may not have reached the autopilot instead of taking it as already written.
+    /// A camera with no saved setup gets every parameter written. When the apply fails, the
+    /// saved setup goes back to what it was, so a retry writes again what may not have
+    /// reached the autopilot instead of taking it as already written.
     #[instrument(level = "debug", skip(new_config))]
     pub async fn update_config(
         camera_uuid: &Uuid,
@@ -276,6 +277,7 @@ impl Manager {
             .actuators
             .get(camera_uuid)
             .cloned();
+        let overwrite = overwrite || saved.is_none();
 
         let result = Self::apply_config(camera_uuid, new_config, overwrite, saved.as_ref()).await;
         if result.is_err() {
