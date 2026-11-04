@@ -1,15 +1,11 @@
-use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use settings::TiltChannelFunction;
-use tracing::*;
-use uuid::Uuid;
 
 use crate::{
-    api, generate_update_channel_param_function, generate_update_mount_param_function,
+    api,
     manager::{
         Manager,
         plan::{Change, Planner, servo_param},
-        store_parameters, write_param,
     },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
@@ -22,109 +18,6 @@ pub(super) fn tilt_mount_id(camera_id: api::CameraID) -> TiltChannelFunction {
 }
 
 impl Manager {
-    /// The channel the role leaves is turned off by [`Manager::update_config`].
-    /// `force_mount` writes the mount parameters even when the saved setup has them.
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn update_tilt_parameters(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        overwrite: bool,
-        force_mount: bool,
-    ) -> Result<bool> {
-        let mut autopilot_reboot_required = overwrite;
-        let mut channel_moved = false;
-
-        if let Some(channel) = parameters.tilt_channel {
-            let saved = Self::saved_parameters(camera_uuid).await?;
-            autopilot_reboot_required |= write_param(
-                &format!("SERVO{}_FUNCTION", channel as u8),
-                ParamType::INT16(Self::tilt_channel_function(saved.camera_id) as i16),
-                overwrite,
-            )
-            .await
-            .context("Failed setting the tilt channel function")?;
-            channel_moved = saved.tilt_channel != channel;
-            store_parameters(camera_uuid, |stored| stored.tilt_channel = channel).await?;
-        }
-
-        // A channel the role moves to has none of its settings yet.
-        let force_channel = autopilot_reboot_required || channel_moved;
-        let force_mount = autopilot_reboot_required || force_mount;
-
-        Self::update_tilt_channel_min(camera_uuid, parameters, force_channel).await?;
-        Self::update_tilt_channel_trim(camera_uuid, parameters, force_channel).await?;
-        Self::update_tilt_channel_max(camera_uuid, parameters, force_channel).await?;
-        Self::update_tilt_channel_reversed(camera_uuid, parameters, force_channel).await?;
-
-        Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, force_mount).await?;
-        Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, force_mount).await?;
-        let mount_reboot = Self::update_tilt_mnt_type(camera_uuid, parameters, force_mount).await?;
-
-        Ok(autopilot_reboot_required || mount_reboot)
-    }
-
-    #[instrument(level = "debug", skip(parameters))]
-    async fn update_tilt_channel_reversed(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<()> {
-        let (param_name, new_value, old_value) = {
-            let mut manager = crate::manager::MANAGER
-                .get()
-                .context("Not available")?
-                .write()
-                .await;
-            let current_parameters = &mut manager
-                .settings
-                .actuators
-                .entry(*camera_uuid)
-                .or_default()
-                .parameters;
-            let channel = current_parameters.tilt_channel as u8;
-            let param_name = format!("SERVO{channel}_REVERSED");
-            let new_value = match (parameters.tilt_channel_reversed, force_apply) {
-                (Some(value), _) => value,
-                (None, true) => current_parameters.tilt_channel_reversed,
-                (None, false) => return Ok(()),
-            };
-            (
-                param_name,
-                new_value,
-                current_parameters.tilt_channel_reversed,
-            )
-        };
-
-        if old_value == new_value && !force_apply {
-            trace!("Parameter {param_name:?} skipped");
-            return Ok(());
-        }
-
-        let mavlink = crate::mavlink::component()?;
-        let encoding = mavlink.encoding().await;
-        let mut param = mavlink.get_param(&param_name, false).await?;
-        param
-            .value
-            .set_value(ParamType::UINT8(new_value as u8), encoding)?;
-        mavlink
-            .set_param(param)
-            .await
-            .context("Failed setting tilt channel reversed parameter")?;
-
-        if old_value != new_value {
-            info!("tilt_channel_reversed changed from {old_value} to {new_value}");
-        }
-        let mut manager = crate::manager::MANAGER
-            .get()
-            .context("Not available")?
-            .write()
-            .await;
-        if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-            actuators.parameters.tilt_channel_reversed = new_value;
-        }
-        Ok(())
-    }
-
     fn tilt_channel_function(camera_id: api::CameraID) -> ChannelFunction {
         match camera_id {
             api::CameraID::CAM1 => ChannelFunction::Mount1Pitch,
@@ -166,117 +59,26 @@ impl Manager {
         );
     }
 
-    generate_update_channel_param_function!(
-        update_tilt_channel_min,
-        tilt_channel_min,
-        "SERVO",
-        "MIN",
-        UINT16,
-        tilt_channel
-    );
+    fn expect_owned_tilt_mnt_pitch_min(
+        parameters: &ActuatorsParameters,
+        map: &mut IndexMap<String, ParamType>,
+    ) {
+        let mount_id = tilt_mount_id(parameters.camera_id);
+        map.insert(
+            format!("{mount_id:?}_PITCH_MIN"),
+            ParamType::INT32(parameters.tilt_mnt_pitch_min),
+        );
+    }
 
-    generate_update_channel_param_function!(
-        update_tilt_channel_max,
-        tilt_channel_max,
-        "SERVO",
-        "MAX",
-        UINT16,
-        tilt_channel
-    );
-
-    generate_update_channel_param_function!(
-        update_tilt_channel_trim,
-        tilt_channel_trim,
-        "SERVO",
-        "TRIM",
-        UINT16,
-        tilt_channel
-    );
-
-    generate_update_mount_param_function!(
-        update_tilt_mnt_pitch_min,
-        expect_owned_tilt_mnt_pitch_min,
-        tilt_mnt_pitch_min,
-        "PITCH_MIN",
-        INT32
-    );
-
-    generate_update_mount_param_function!(
-        update_tilt_mnt_pitch_max,
-        expect_owned_tilt_mnt_pitch_max,
-        tilt_mnt_pitch_max,
-        "PITCH_MAX",
-        INT32
-    );
-
-    #[instrument(level = "debug")]
-    pub async fn update_tilt_mnt_type(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<bool> {
-        let (param_name, new_value) = {
-            let mut manager = crate::manager::MANAGER
-                .get()
-                .context("Not available")?
-                .write()
-                .await;
-            let current_parameters = &mut manager
-                .settings
-                .actuators
-                .entry(*camera_uuid)
-                .or_default()
-                .parameters;
-
-            let mount_id = tilt_mount_id(current_parameters.camera_id);
-            let param_name = format!("{mount_id:?}_TYPE");
-
-            let new_value = match (parameters.tilt_mnt_type, force_apply) {
-                (Some(value), _) => value,
-                (None, true) => current_parameters.tilt_mnt_type,
-                (None, false) => return Ok(false),
-            };
-
-            (param_name, new_value)
-        };
-
-        let mavlink = crate::mavlink::component()?;
-        let encoding = mavlink.encoding().await;
-        let mut param = mavlink.get_param(&param_name, false).await?;
-        let old_value_encoded = param.param_value(encoding)?;
-        let old_value = param.value;
-        param
-            .value
-            .set_value(ParamType::INT32(new_value as i32), encoding)?;
-        let new_value_encoded = param.param_value(encoding)?;
-        let written_value = param.value;
-        if (old_value_encoded != new_value_encoded) || force_apply {
-            match mavlink.set_param(param).await {
-                Ok(_) => {
-                    if old_value_encoded != new_value_encoded {
-                        info!(
-                            "{param_name} changed from {old_value:?} to {written_value:?} ({new_value:?})"
-                        );
-                    }
-                    let mut manager = crate::manager::MANAGER
-                        .get()
-                        .context("Not available")?
-                        .write()
-                        .await;
-                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                        actuators.parameters.tilt_mnt_type = new_value;
-                    }
-                    // Mount type changes require an autopilot reboot to take effect, rewriting
-                    // the same type does not.
-                    return Ok(old_value_encoded != new_value_encoded);
-                }
-                Err(error) => {
-                    return Err(error).context(format!("Failed setting parameter {param_name}"));
-                }
-            }
-        }
-
-        Ok(false)
+    fn expect_owned_tilt_mnt_pitch_max(
+        parameters: &ActuatorsParameters,
+        map: &mut IndexMap<String, ParamType>,
+    ) {
+        let mount_id = tilt_mount_id(parameters.camera_id);
+        map.insert(
+            format!("{mount_id:?}_PITCH_MAX"),
+            ParamType::INT32(parameters.tilt_mnt_pitch_max),
+        );
     }
 }
 
