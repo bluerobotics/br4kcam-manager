@@ -345,6 +345,18 @@ impl Manager {
         Ok(false)
     }
 
+    /// The saved setup of `camera_uuid`, starting from the defaults when it has none yet.
+    async fn saved_parameters(camera_uuid: &Uuid) -> Result<ActuatorsParameters> {
+        let mut manager = MANAGER.get().context("Not available")?.write().await;
+        Ok(manager
+            .settings
+            .actuators
+            .entry(*camera_uuid)
+            .or_default()
+            .parameters
+            .clone())
+    }
+
     /// Turns off the channel functions and camera types the camera wrote under `saved` and no
     /// longer uses under `next`. One still held with this camera's value goes back to the
     /// value another camera's setup gives it, or else is turned off. One the autopilot holds
