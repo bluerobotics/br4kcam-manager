@@ -10,7 +10,9 @@ use uuid::Uuid;
 use crate::{
     CameraActuators, api, generate_update_channel_param_function,
     manager::{
-        Manager, clear_channel_reversed, get_output_raw_from_channel, store_parameters, write_param,
+        Manager, clear_channel_reversed, get_output_raw_from_channel,
+        plan::{Change, PlannedWrite, Planner},
+        store_parameters, write_param,
     },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
@@ -465,6 +467,76 @@ impl Manager {
         }
         false
     }
+}
+
+/// The script channel, the focus input from the GCS: `SERVO{script_channel}_FUNCTION` and
+/// its PWM range. Returns whether the function is written.
+pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
+    let Change {
+        current,
+        next,
+        incoming,
+        overwrite,
+        ..
+    } = *change;
+    let mut written = overwrite;
+
+    let mut channel_moved = false;
+    if incoming.script_channel.is_some() {
+        written |= planner.channel_function(
+            next.script_channel,
+            Manager::script_channel_function(),
+            overwrite,
+        );
+        channel_moved = current.script_channel != next.script_channel;
+        if overwrite || channel_moved {
+            planner.clear_reversed(next.script_channel);
+        }
+    }
+    // A channel the role moves to has none of its settings yet.
+    planner.channel_range(
+        next.script_channel,
+        [
+            current.script_channel_min,
+            current.script_channel_trim,
+            current.script_channel_max,
+        ],
+        [
+            next.script_channel_min,
+            next.script_channel_trim,
+            next.script_channel_max,
+        ],
+        written || channel_moved,
+    );
+
+    written
+}
+
+/// `BR4KCAM{n}_ENABLE` and `_GAIN` of `next`, each written when it changes from `current`,
+/// or both with `force`. They only exist while the script runs.
+pub(crate) fn param_writes(
+    current: &ActuatorsParameters,
+    next: &ActuatorsParameters,
+    force: bool,
+) -> Vec<PlannedWrite> {
+    let camera = next.camera_id as u8;
+    let mut writes = Vec::new();
+    if force || current.enable_focus_and_zoom_correlation != next.enable_focus_and_zoom_correlation
+    {
+        writes.push(PlannedWrite {
+            name: format!("{PARAM_PREFIX}{camera}_ENABLE"),
+            value: ParamType::UINT8(next.enable_focus_and_zoom_correlation as u8),
+            force: true,
+        });
+    }
+    if force || current.focus_margin_gain != next.focus_margin_gain {
+        writes.push(PlannedWrite {
+            name: format!("{PARAM_PREFIX}{camera}_GAIN"),
+            value: ParamType::REAL32(next.focus_margin_gain),
+            force: true,
+        });
+    }
+    writes
 }
 
 pub(super) fn push_owned_expectations(
