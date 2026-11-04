@@ -8,10 +8,12 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use uuid::Uuid;
 
-use super::MANAGER;
+use super::{MANAGER, camera, focus, owned_parameters, script, tilt, zoom};
 use crate::{
     CameraActuators, api,
-    parameters::{ActuatorsParameters, ChannelFunction, ParamType, Parameter, param_display_value},
+    parameters::{
+        ActuatorsParameters, CameraType, ChannelFunction, ParamType, Parameter, param_display_value,
+    },
 };
 
 /// One autopilot parameter write.
@@ -191,4 +193,197 @@ impl<'a> Planner<'a> {
 
 pub(super) fn servo_param(channel: api::ServoChannel, suffix: &str) -> String {
     format!("SERVO{}_{suffix}", channel as u8)
+}
+
+/// The value that turns off a channel function or camera type, `None` for any other parameter.
+fn released_value(name: &str) -> Option<ParamType> {
+    if name.starts_with("SERVO") && name.ends_with("_FUNCTION") {
+        Some(ParamType::INT16(ChannelFunction::Disabled as i16))
+    } else if name.starts_with("CAM") && name.ends_with("_TYPE") {
+        Some(ParamType::UINT8(CameraType::None as u8))
+    } else {
+        None
+    }
+}
+
+/// The parameters each other camera's saved setup owns, with their values.
+fn other_cameras(
+    snapshot: &Snapshot,
+    camera_uuid: Uuid,
+) -> Vec<(Uuid, IndexMap<String, ParamType>)> {
+    snapshot
+        .saved
+        .iter()
+        .filter(|(uuid, _)| **uuid != camera_uuid)
+        .map(|(uuid, actuators)| {
+            let mut owned = IndexMap::new();
+            owned_parameters::push_all_expectations(&actuators.parameters, &mut owned);
+            (*uuid, owned)
+        })
+        .collect()
+}
+
+/// Refuses a setup that gives a channel function or camera type a value other than the one
+/// another camera's setup holds it with, so an apply or a reset never takes over a channel
+/// another camera uses.
+fn refuse_taking_other_cameras(
+    snapshot: &Snapshot,
+    camera_uuid: Uuid,
+    next: &ActuatorsParameters,
+) -> Result<()> {
+    let mut ours = IndexMap::new();
+    owned_parameters::push_all_expectations(next, &mut ours);
+    for (uuid, theirs) in other_cameras(snapshot, camera_uuid) {
+        for (name, value) in &ours {
+            if released_value(name).is_some()
+                && theirs
+                    .get(name)
+                    .is_some_and(|their_value| their_value != value)
+            {
+                anyhow::bail!("{name} is used by camera {uuid}, pick another channel or camera id");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Turns off the channel functions and camera types the camera wrote under `written` and no
+/// longer uses under `next`. One still held with this camera's value goes back to the value
+/// another camera's setup gives it, or else is turned off. One the autopilot holds with any
+/// other value is not this camera's anymore, so it is left alone.
+///
+/// Returns whether anything is written, which takes an autopilot reboot.
+fn release(
+    planner: &mut Planner,
+    snapshot: &Snapshot,
+    camera_uuid: Uuid,
+    written: &ActuatorsParameters,
+    next: Option<&ActuatorsParameters>,
+) -> bool {
+    let mut others = IndexMap::new();
+    for (_, owned) in other_cameras(snapshot, camera_uuid) {
+        others.extend(owned);
+    }
+    let mut ours = IndexMap::new();
+    owned_parameters::push_all_expectations(written, &mut ours);
+    let mut used = IndexMap::new();
+    if let Some(next) = next {
+        owned_parameters::push_all_expectations(next, &mut used);
+    }
+
+    let mut wrote = false;
+    for (name, value) in ours {
+        if used.contains_key(&name) || !planner.autopilot_holds(&name, &value) {
+            continue;
+        }
+        let Some(release_value) = others.get(&name).copied().or_else(|| released_value(&name))
+        else {
+            continue;
+        };
+        wrote |= planner.write_if_needed(name, release_value, false);
+    }
+    wrote
+}
+
+/// Plans applying `config` to `camera_uuid`. With `overwrite`, or for a camera with no saved
+/// setup, every value is written even when the autopilot already holds it.
+pub(crate) fn plan_apply(
+    snapshot: &Snapshot,
+    camera_uuid: Uuid,
+    config: &api::ActuatorsConfig,
+    overwrite: bool,
+) -> Result<ApplyPlan> {
+    let saved = snapshot.saved.get(&camera_uuid);
+    let overwrite = overwrite || saved.is_none();
+    let base = saved.cloned().unwrap_or_default();
+    // shortcut: requested calibration points are not applied, the saved ones are kept; apply
+    // them here once the script can take new points.
+    if config
+        .closest_points
+        .as_ref()
+        .is_some_and(|points| *points != base.closest_points)
+        || config
+            .furthest_points
+            .as_ref()
+            .is_some_and(|points| *points != base.furthest_points)
+    {
+        tracing::warn!("Calibration points are not applied yet, the saved ones are kept");
+    }
+
+    let incoming = config.parameters.clone().unwrap_or_default();
+    let current = &base.parameters;
+    let next = ActuatorsParameters::from(
+        merge_struct::merge(&api::ActuatorsParametersConfig::from(current), &incoming)
+            .context("Failing to merge structs")?,
+    );
+    // What a section moves away from is what the camera wrote: its saved setup, even when the
+    // apply starts from the defaults. A camera with no saved setup wrote nothing, so it has no
+    // old channel or camera type to turn off.
+    let written = saved.map_or(&next, |actuators| &actuators.parameters);
+    // Mount and script parameters are numbered by the camera id.
+    let camera_moved = written.camera_id != next.camera_id;
+
+    let mut planner = Planner::new(&snapshot.autopilot);
+    // A reboot an earlier apply asked for may not have happened, and the changes it was for
+    // are already on the autopilot, so nothing else would ask for it again.
+    let mut reboot = overwrite || snapshot.reboot_pending;
+
+    if config.parameters.is_some() {
+        refuse_taking_other_cameras(snapshot, camera_uuid, &next)?;
+        let change = Change {
+            current: written,
+            next: &next,
+            incoming: &incoming,
+            overwrite,
+            camera_moved,
+        };
+        reboot |= camera::plan(&mut planner, &change);
+        reboot |= script::plan(&mut planner, &change);
+        reboot |= focus::plan(&mut planner, &change)?;
+        reboot |= zoom::plan(&mut planner, &change);
+        reboot |= tilt::plan(&mut planner, &change);
+        if let Some(saved) = saved {
+            reboot |= release(
+                &mut planner,
+                snapshot,
+                camera_uuid,
+                &saved.parameters,
+                Some(&next),
+            );
+        }
+    }
+
+    let next_parameters = next;
+    let next = CameraActuators {
+        parameters: next_parameters.clone(),
+        ..base
+    };
+
+    let contents = script::generate_checked_lua_script(&next)?;
+    let is_installed = snapshot
+        .installed_script
+        .as_deref()
+        .is_some_and(|installed| script::lua_scripts_equivalent(installed, &contents));
+    let script = if overwrite || !is_installed {
+        ScriptAction::Write(contents)
+    } else {
+        ScriptAction::Keep
+    };
+    let reload_scripts = overwrite || script != ScriptAction::Keep;
+    reboot |= planner.write_if_needed("SCR_ENABLE".to_string(), ParamType::REAL32(1.0), overwrite);
+    let after_reload = if reboot {
+        Vec::new()
+    } else {
+        // The script parameters of a new camera id were never written.
+        script::param_writes(current, &next_parameters, reload_scripts || camera_moved)
+    };
+
+    Ok(ApplyPlan {
+        writes: planner.writes,
+        script,
+        reload_scripts: reload_scripts && !reboot,
+        reboot,
+        after_reload,
+        next,
+    })
 }
