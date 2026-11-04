@@ -285,6 +285,15 @@ fn release(
     wrote
 }
 
+/// Plans forgetting `camera_uuid`: the writes that release what it holds, or `None` when it
+/// has no saved setup.
+pub(crate) fn plan_forget(snapshot: &Snapshot, camera_uuid: Uuid) -> Option<Vec<PlannedWrite>> {
+    let saved = snapshot.saved.get(&camera_uuid)?;
+    let mut planner = Planner::new(&snapshot.autopilot);
+    release(&mut planner, snapshot, camera_uuid, &saved.parameters, None);
+    Some(planner.writes)
+}
+
 /// Plans applying `config` to `camera_uuid`. With `overwrite`, or for a camera with no saved
 /// setup, every value is written even when the autopilot already holds it.
 pub(crate) fn plan_apply(
