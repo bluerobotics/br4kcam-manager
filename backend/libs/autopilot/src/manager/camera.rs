@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     api,
-    manager::Manager,
+    manager::{Manager, store_parameters, write_param},
     parameters::{ActuatorsParameters, CameraType, ParamType},
 };
 
@@ -72,44 +72,15 @@ impl Manager {
                 }
             }
 
-            // Sets the new camera_id:
-            {
-                let param_name = format!("CAM{}_TYPE", *camera_id as u8);
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(Self::enabled_camera_type_value(), encoding)?;
-                let new_value = param.value;
-
-                if overwrite || old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "camera_id (CAM{}) changed from {:?} to {new_value:?}",
-                                *camera_id as u8, old_value
-                            );
-
-                            let mut manager = crate::manager::MANAGER
-                                .get()
-                                .context("Not available")?
-                                .write()
-                                .await;
-                            if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid)
-                            {
-                                actuators.parameters.camera_id = *camera_id;
-                            }
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed setting new camera camera_id parameter when setting parameter",
-                            );
-                        }
-                    }
-                }
-            }
+            // Sets the new camera_id, or keeps it when the autopilot already holds it:
+            autopilot_reboot_required |= write_param(
+                &format!("CAM{}_TYPE", *camera_id as u8),
+                Self::enabled_camera_type_value(),
+                overwrite,
+            )
+            .await
+            .context("Failed setting the camera type")?;
+            store_parameters(camera_uuid, |stored| stored.camera_id = *camera_id).await?;
         }
 
         Ok(autopilot_reboot_required)
