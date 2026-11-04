@@ -77,10 +77,19 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
 }
 
 /// Run an autopilot control, driving the shared UI overlay and state stream.
+///
+/// The control runs in its own task, so a client that disconnects or times out does not
+/// cancel an apply halfway, between writing the autopilot and saving or reverting the setup.
 #[tracing::instrument(level = "debug", skip_all, fields(%actuators_control.camera_uuid))]
 pub(crate) async fn autopilot_control(
     actuators_control: ActuatorsControl,
 ) -> Result<Value, ControlError> {
+    tokio::spawn(run_autopilot_control(actuators_control))
+        .await
+        .unwrap_or_else(|error| Err(ControlError::other(format!("{error:?}"))))
+}
+
+async fn run_autopilot_control(actuators_control: ActuatorsControl) -> Result<Value, ControlError> {
     let camera_uuid = actuators_control.camera_uuid;
     if mcm_client::camera_address(&camera_uuid).await.is_none()
         && !connectivity::is_expected(camera_uuid).await
