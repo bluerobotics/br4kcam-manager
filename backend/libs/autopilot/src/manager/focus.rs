@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     api, generate_update_channel_param_function,
-    manager::{Manager, clear_channel_reversed, store_parameters, write_param},
+    manager::{
+        Manager, clear_channel_reversed,
+        plan::{Change, Planner, servo_param},
+        store_parameters, write_param,
+    },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -174,6 +178,56 @@ impl Manager {
         UINT16,
         focus_channel
     );
+}
+
+/// The focus servo, driven by the script: `SERVO{focus_channel}_FUNCTION` and its PWM range.
+/// Returns whether the function is written.
+pub(super) fn plan(planner: &mut Planner, change: &Change) -> Result<bool> {
+    let Change {
+        current,
+        next,
+        incoming,
+        overwrite,
+        ..
+    } = *change;
+    let mut written = overwrite;
+
+    let mut channel_moved = false;
+    if incoming.focus_channel.is_some() {
+        // The focus servo input is the script:
+        let function = Manager::focus_channel_function(next.script_function)?;
+        written |= planner.channel_function(next.focus_channel, function, overwrite);
+        channel_moved = current.focus_channel != next.focus_channel;
+        if overwrite || channel_moved {
+            planner.clear_reversed(next.focus_channel);
+        }
+    } else if incoming.script_function.is_some()
+        && (overwrite || current.script_function != next.script_function)
+    {
+        let function = Manager::focus_channel_function(next.script_function)?;
+        written |= planner.write_if_needed(
+            servo_param(next.focus_channel, "FUNCTION"),
+            ParamType::INT16(function as i16),
+            overwrite,
+        );
+    }
+    // A channel the role moves to has none of its settings yet.
+    planner.channel_range(
+        next.focus_channel,
+        [
+            current.focus_channel_min,
+            current.focus_channel_trim,
+            current.focus_channel_max,
+        ],
+        [
+            next.focus_channel_min,
+            next.focus_channel_trim,
+            next.focus_channel_max,
+        ],
+        written || channel_moved,
+    );
+
+    Ok(written)
 }
 
 pub(super) fn push_owned_expectations(
