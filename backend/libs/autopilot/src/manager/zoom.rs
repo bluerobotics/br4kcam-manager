@@ -18,8 +18,10 @@ impl Manager {
         overwrite: bool,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
+        let mut channel_moved = false;
 
         if let Some(channel) = parameters.zoom_channel {
+            let old_channel = Self::saved_parameters(camera_uuid).await?.zoom_channel;
             autopilot_reboot_required |= write_param(
                 &format!("SERVO{}_FUNCTION", channel as u8),
                 ParamType::INT16(Self::zoom_channel_function() as i16),
@@ -27,11 +29,17 @@ impl Manager {
             )
             .await
             .context("Failed setting the zoom channel function")?;
+            channel_moved = old_channel != channel;
             store_parameters(camera_uuid, |stored| stored.zoom_channel = channel).await?;
         }
 
-        Self::update_zoom_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
-            .await?;
+        // A channel the role moves to has none of its settings yet.
+        Self::update_zoom_channel_parameters(
+            camera_uuid,
+            parameters,
+            autopilot_reboot_required || channel_moved,
+        )
+        .await?;
 
         Ok(autopilot_reboot_required)
     }
