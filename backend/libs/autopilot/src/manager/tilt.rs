@@ -6,7 +6,11 @@ use uuid::Uuid;
 
 use crate::{
     api, generate_update_channel_param_function, generate_update_mount_param_function,
-    manager::{Manager, store_parameters, write_param},
+    manager::{
+        Manager,
+        plan::{Change, Planner, servo_param},
+        store_parameters, write_param,
+    },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -274,6 +278,84 @@ impl Manager {
 
         Ok(false)
     }
+}
+
+/// The tilt servo and its mount: `SERVO{tilt_channel}_FUNCTION`, its PWM range and direction,
+/// and `MNT{n}_PITCH_MIN`, `_PITCH_MAX` and `_TYPE`. Returns whether a function or the mount
+/// type is written, which only take effect after a reboot.
+pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
+    let Change {
+        current,
+        next,
+        incoming,
+        overwrite,
+        camera_moved,
+    } = *change;
+    let mut written = overwrite;
+
+    let mut channel_moved = false;
+    if incoming.tilt_channel.is_some() {
+        written |= planner.channel_function(
+            next.tilt_channel,
+            Manager::tilt_channel_function(next.camera_id),
+            overwrite,
+        );
+        channel_moved = current.tilt_channel != next.tilt_channel;
+    }
+
+    // A channel the role moves to has none of its settings yet, and a mount the camera id
+    // moves to has none of its own.
+    let force_channel = written || channel_moved;
+    let force_mount = written || camera_moved;
+    planner.channel_range(
+        next.tilt_channel,
+        [
+            current.tilt_channel_min,
+            current.tilt_channel_trim,
+            current.tilt_channel_max,
+        ],
+        [
+            next.tilt_channel_min,
+            next.tilt_channel_trim,
+            next.tilt_channel_max,
+        ],
+        force_channel,
+    );
+    planner.write_if_changed(
+        servo_param(next.tilt_channel, "REVERSED"),
+        current.tilt_channel_reversed,
+        next.tilt_channel_reversed,
+        ParamType::UINT8(next.tilt_channel_reversed as u8),
+        force_channel,
+    );
+
+    let mount_id = tilt_mount_id(next.camera_id);
+    // ArduPilot hides a mount's other parameters while its type is 0, so the type goes first.
+    if incoming.tilt_mnt_type.is_some() || force_mount {
+        let name = format!("{mount_id:?}_TYPE");
+        let value = ParamType::INT32(next.tilt_mnt_type as i32);
+        // Mount type changes require an autopilot reboot to take effect, rewriting the same
+        // type does not.
+        written |= !planner.autopilot_holds(&name, &value);
+        planner.write_if_needed(name, value, force_mount);
+    }
+
+    planner.write_if_changed(
+        format!("{mount_id:?}_PITCH_MIN"),
+        current.tilt_mnt_pitch_min,
+        next.tilt_mnt_pitch_min,
+        ParamType::INT32(next.tilt_mnt_pitch_min),
+        force_mount,
+    );
+    planner.write_if_changed(
+        format!("{mount_id:?}_PITCH_MAX"),
+        current.tilt_mnt_pitch_max,
+        next.tilt_mnt_pitch_max,
+        ParamType::INT32(next.tilt_mnt_pitch_max),
+        force_mount,
+    );
+
+    written
 }
 
 pub(super) fn push_owned_expectations(
