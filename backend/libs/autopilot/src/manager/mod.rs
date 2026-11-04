@@ -280,8 +280,11 @@ impl Manager {
         let overwrite = overwrite || saved.is_none();
 
         let result = Self::apply_config(camera_uuid, new_config, overwrite, saved.as_ref()).await;
-        if result.is_err() {
-            Self::restore_saved_setup(camera_uuid, saved).await?;
+        if let Err(error) = &result
+            && let Err(restore_error) = Self::restore_saved_setup(camera_uuid, saved).await
+        {
+            // The apply error is the one the caller acts on.
+            error!("Failed restoring the saved setup after {error:?}: {restore_error:?}");
         }
         result
     }
