@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     api, generate_update_channel_param_function,
-    manager::Manager,
+    manager::{Manager, store_parameters, write_param},
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -72,59 +72,19 @@ impl Manager {
                 }
             }
 
-            // Sets the new focus_channel:
-            {
-                let param_name = format!("SERVO{}_FUNCTION", *channel as u8);
-
-                // The focus servo input is the script:
-                let function = Self::focus_channel_function(script_function)?;
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(function as i16), encoding)?;
-                let new_value = param.value;
-
-                if overwrite || old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "focus_channel (SERVO{}) changed from {:?} to {new_value:?}",
-                                *channel as u8, old_value
-                            );
-
-                            let mut manager = crate::manager::MANAGER
-                                .get()
-                                .context("Not available")?
-                                .write()
-                                .await;
-                            if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid)
-                            {
-                                actuators.parameters.focus_channel = *channel;
-                                if let Some(script_function) = parameters.script_function {
-                                    actuators.parameters.script_function = script_function;
-                                }
-                            }
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed setting new focus channel parameter when setting parameter",
-                            );
-                        }
-                    }
-                } else if let Some(script_function) = parameters.script_function {
-                    let mut manager = crate::manager::MANAGER
-                        .get()
-                        .context("Not available")?
-                        .write()
-                        .await;
-                    if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
-                        actuators.parameters.script_function = script_function;
-                    }
-                }
-            }
+            // Sets the new focus_channel, or keeps it when the autopilot already holds it:
+            autopilot_reboot_required |= write_param(
+                &format!("SERVO{}_FUNCTION", *channel as u8),
+                ParamType::INT16(Self::focus_channel_function(script_function)? as i16),
+                overwrite,
+            )
+            .await
+            .context("Failed setting the focus channel function")?;
+            store_parameters(camera_uuid, |stored| {
+                stored.focus_channel = *channel;
+                stored.script_function = script_function;
+            })
+            .await?;
         } else if let Some(script_function) = parameters.script_function {
             autopilot_reboot_required |=
                 Self::apply_script_function(camera_uuid, script_function, overwrite).await?;
