@@ -169,6 +169,7 @@ impl Manager {
         Ok(autopilot_reboot_required)
     }
 
+    /// The channel the role leaves is turned off by [`Manager::update_config`].
     #[instrument(level = "debug", skip(parameters))]
     pub async fn update_script_parameters(
         camera_uuid: &Uuid,
@@ -177,65 +178,16 @@ impl Manager {
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
 
-        if let Some(channel) = &parameters.script_channel {
-            // Snapshot under a short write with no await inside, so the MAVLink I/O
-            // below never runs while MANAGER is locked.
-            let old_channel = {
-                let mut manager = crate::manager::MANAGER
-                    .get()
-                    .context("Not available")?
-                    .write()
-                    .await;
-                manager
-                    .settings
-                    .actuators
-                    .entry(*camera_uuid)
-                    .or_default()
-                    .parameters
-                    .script_channel
-            };
-
-            let mavlink = crate::mavlink::component()?;
-            let encoding = mavlink.encoding().await;
-
-            // Disables the old script_channel:
-            if &old_channel != channel {
-                let param_name = format!("SERVO{}_FUNCTION", old_channel as u8);
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(ChannelFunction::Disabled as i16), encoding)?;
-                let new_value = param.value;
-
-                if old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "script_channel (SERVO{}) changed from {old_value:?} to {new_value:?}",
-                                old_channel as u8,
-                            );
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed to disable the old script channel when setting parameter",
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Sets the new script_channel, or keeps it when the autopilot already holds it:
+        if let Some(channel) = parameters.script_channel {
+            // The script servo input is the values from the CameraFocus
             autopilot_reboot_required |= write_param(
-                &format!("SERVO{}_FUNCTION", *channel as u8),
+                &format!("SERVO{}_FUNCTION", channel as u8),
                 ParamType::INT16(Self::script_channel_function() as i16),
                 overwrite,
             )
             .await
             .context("Failed setting the script channel function")?;
-            store_parameters(camera_uuid, |stored| stored.script_channel = *channel).await?;
+            store_parameters(camera_uuid, |stored| stored.script_channel = channel).await?;
         }
 
         Self::update_script_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
