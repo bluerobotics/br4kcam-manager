@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     CameraActuators, api, generate_update_channel_param_function,
-    manager::{Manager, get_output_raw_from_channel},
+    manager::{Manager, get_output_raw_from_channel, store_parameters, write_param},
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -227,47 +227,15 @@ impl Manager {
                 }
             }
 
-            // Sets the new script_channel:
-            {
-                let param_name = format!("SERVO{}_FUNCTION", *channel as u8);
-
-                // The script servo input is the values from the CameraFocus
-                let function = Self::script_channel_function();
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(function as i16), encoding)?;
-                let new_value = param.value;
-
-                if overwrite || old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "script_channel (SERVO{}) changed from {old_value:?} to {new_value:?}",
-                                *channel as u8
-                            );
-
-                            let mut manager = crate::manager::MANAGER
-                                .get()
-                                .context("Not available")?
-                                .write()
-                                .await;
-                            if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid)
-                            {
-                                actuators.parameters.script_channel = *channel;
-                            }
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed setting new script channel parameter when setting parameter",
-                            );
-                        }
-                    }
-                }
-            }
+            // Sets the new script_channel, or keeps it when the autopilot already holds it:
+            autopilot_reboot_required |= write_param(
+                &format!("SERVO{}_FUNCTION", *channel as u8),
+                ParamType::INT16(Self::script_channel_function() as i16),
+                overwrite,
+            )
+            .await
+            .context("Failed setting the script channel function")?;
+            store_parameters(camera_uuid, |stored| stored.script_channel = *channel).await?;
         }
 
         Self::update_script_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
