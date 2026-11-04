@@ -465,6 +465,23 @@ pub(super) async fn write_param(param_name: &str, value: ParamType, force: bool)
     Ok(true)
 }
 
+/// Updates the saved setup of `camera_uuid`, starting from the defaults when it has none yet.
+pub(super) async fn store_parameters(
+    camera_uuid: &Uuid,
+    update: impl FnOnce(&mut ActuatorsParameters),
+) -> Result<()> {
+    let mut manager = MANAGER.get().context("Not available")?.write().await;
+    update(
+        &mut manager
+            .settings
+            .actuators
+            .entry(*camera_uuid)
+            .or_default()
+            .parameters,
+    );
+    Ok(())
+}
+
 /// Constructs our manager, Should be done inside main
 #[instrument(level = "debug")]
 pub async fn init(
