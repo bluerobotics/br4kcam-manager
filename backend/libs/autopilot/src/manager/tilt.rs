@@ -263,8 +263,9 @@ impl Manager {
                     if let Some(actuators) = manager.settings.actuators.get_mut(camera_uuid) {
                         actuators.parameters.tilt_mnt_type = new_value;
                     }
-                    // Mount type changes require an autopilot reboot to take effect.
-                    return Ok(old_value_encoded != new_value_encoded || force_apply);
+                    // Mount type changes require an autopilot reboot to take effect, rewriting
+                    // the same type does not.
+                    return Ok(old_value_encoded != new_value_encoded);
                 }
                 Err(error) => {
                     return Err(error).context(format!("Failed setting parameter {param_name}"));
