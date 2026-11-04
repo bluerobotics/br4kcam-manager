@@ -376,7 +376,7 @@ impl Manager {
 
             if let Some(saved) = saved {
                 autopilot_reboot_required |=
-                    Self::release_parameters(camera_uuid, &saved.parameters, &next).await?;
+                    Self::release_parameters(camera_uuid, &saved.parameters, Some(&next)).await?;
             }
         }
 
@@ -492,7 +492,7 @@ impl Manager {
     async fn release_parameters(
         camera_uuid: &Uuid,
         saved: &ActuatorsParameters,
-        next: &ActuatorsParameters,
+        next: Option<&ActuatorsParameters>,
     ) -> Result<bool> {
         let released = {
             let manager = MANAGER.get().context("Not available")?.read().await;
@@ -505,7 +505,9 @@ impl Manager {
             let mut written = IndexMap::new();
             owned_parameters::push_all_expectations(saved, &mut written);
             let mut used = IndexMap::new();
-            owned_parameters::push_all_expectations(next, &mut used);
+            if let Some(next) = next {
+                owned_parameters::push_all_expectations(next, &mut used);
+            }
 
             written
                 .into_iter()
@@ -552,6 +554,47 @@ impl Manager {
         owned_parameters::rebuild().await;
         owned_parameters::reevaluate_after_apply().await;
         Ok(())
+    }
+
+    /// Releases the channel functions and camera type the camera holds, giving each back to
+    /// another camera's setup that uses it, and forgets the camera. Caller must hold
+    /// [`CONFIG_APPLY`]. Returns `true` if the autopilot must be rebooted before
+    /// [`Self::finalize_config_after_reboot`].
+    #[instrument(level = "debug")]
+    pub async fn forget_config(camera_uuid: &Uuid) -> Result<bool> {
+        let saved = MANAGER
+            .get()
+            .context("Not available")?
+            .read()
+            .await
+            .settings
+            .actuators
+            .get(camera_uuid)
+            .cloned();
+        let Some(saved) = saved else {
+            return Ok(false);
+        };
+
+        let released = Self::release_parameters(camera_uuid, &saved.parameters, None).await?;
+
+        MANAGER
+            .get()
+            .context("Not available")?
+            .write()
+            .await
+            .settings
+            .actuators
+            .shift_remove(camera_uuid);
+        Self::save_actuators_settings().await?;
+        info!(%camera_uuid, "Forgot actuators configuration for camera");
+        owned_parameters::rebuild().await;
+        owned_parameters::reevaluate_after_apply().await;
+
+        let reboot = released || reboot_pending();
+        if reboot {
+            set_reboot_pending(true);
+        }
+        Ok(reboot)
     }
 
     /// Writes every default. The channels and camera id the camera leaves are turned off by
