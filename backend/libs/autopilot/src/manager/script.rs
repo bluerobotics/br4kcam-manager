@@ -53,22 +53,28 @@ impl Manager {
                 .context(crate::ACTUATORS_NOT_CONFIGURED)?;
 
             (
-                generate_lua_script(camera_actuators)?,
+                generate_checked_lua_script(camera_actuators)?,
                 manager.autopilot_scripts_file.clone(),
             )
         };
-        validate_lua(&contents)?;
 
-        let path_obj = std::path::Path::new(&path);
-        if let Some(parent_dir) = path_obj.parent() {
-            tokio::fs::create_dir_all(parent_dir).await?;
-        }
-
-        if let Ok(existing_contents) = tokio::fs::read_to_string(path_obj).await
+        if let Ok(existing_contents) = tokio::fs::read_to_string(&path).await
             && !overwrite
             && lua_scripts_equivalent(&existing_contents, &contents)
         {
             return Ok(false);
+        }
+
+        Self::write_script_file(&path, &contents).await?;
+        // Settings save is deferred to update_config finalize / ExportLuaScript caller.
+        Ok(true)
+    }
+
+    #[instrument(level = "debug", skip(contents))]
+    pub(crate) async fn write_script_file(path: &str, contents: &str) -> Result<()> {
+        let path_obj = std::path::Path::new(path);
+        if let Some(parent_dir) = path_obj.parent() {
+            tokio::fs::create_dir_all(parent_dir).await?;
         }
 
         trace!("Saving Lua script to {path:?}. Lua script content: {contents:#?}");
@@ -83,8 +89,7 @@ impl Manager {
         remove_conflicting_owned_scripts(path_obj).await;
         info!("Wrote new lua script to {path:?}");
         crate::health::refresh_lua_script_status().await;
-        // Settings save is deferred to update_config finalize / ExportLuaScript caller.
-        Ok(true)
+        Ok(())
     }
 
     /// Whether the script installed on the autopilot is the one this install expects.
@@ -528,8 +533,15 @@ fn normalize_lua_script_for_compare(script: &str) -> String {
         .join("\n")
 }
 
-fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
+pub(super) fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
     normalize_lua_script_for_compare(installed) == normalize_lua_script_for_compare(expected)
+}
+
+/// The script for `config`, checked to be valid Lua.
+pub(super) fn generate_checked_lua_script(config: &CameraActuators) -> Result<String> {
+    let contents = generate_lua_script(config)?;
+    validate_lua(&contents)?;
+    Ok(contents)
 }
 
 fn generate_lua_script(config: &CameraActuators) -> Result<String> {
