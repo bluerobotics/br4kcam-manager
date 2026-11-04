@@ -258,6 +258,9 @@ impl Manager {
     ///
     /// Caller must hold [`CONFIG_APPLY`]. Returns `true` if the autopilot must be
     /// rebooted before [`Self::finalize_config_after_reboot`] (enable/gain + save).
+    ///
+    /// When the apply fails, the saved setup goes back to what it was, so a retry writes again
+    /// what may not have reached the autopilot instead of taking it as already written.
     #[instrument(level = "debug", skip(new_config))]
     pub async fn update_config(
         camera_uuid: &Uuid,
@@ -273,12 +276,25 @@ impl Manager {
             .actuators
             .get(camera_uuid)
             .cloned();
+
+        let result = Self::apply_config(camera_uuid, new_config, overwrite, saved.as_ref()).await;
+        if result.is_err() {
+            Self::restore_saved_setup(camera_uuid, saved).await?;
+        }
+        result
+    }
+
+    async fn apply_config(
+        camera_uuid: &Uuid,
+        new_config: &api::ActuatorsConfig,
+        overwrite: bool,
+        saved: Option<&CameraActuators>,
+    ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
         let mut camera_moved = false;
 
         if let Some(parameters) = &new_config.parameters {
             let current = saved
-                .as_ref()
                 .map(|actuators| actuators.parameters.clone())
                 .unwrap_or_default();
             let next = ActuatorsParameters::from(
@@ -308,7 +324,7 @@ impl Manager {
             )
             .await?;
 
-            if let Some(saved) = &saved {
+            if let Some(saved) = saved {
                 autopilot_reboot_required |=
                     Self::release_parameters(camera_uuid, &saved.parameters, &next).await?;
             }
@@ -363,6 +379,27 @@ impl Manager {
             .or_default()
             .parameters
             .clone())
+    }
+
+    /// Puts back the setup the camera had before a failed apply, or forgets the camera when it
+    /// had none. The measured state is kept, it does not come from the apply.
+    async fn restore_saved_setup(camera_uuid: &Uuid, saved: Option<CameraActuators>) -> Result<()> {
+        let mut manager = MANAGER.get().context("Not available")?.write().await;
+        let actuators = &mut manager.settings.actuators;
+        match (saved, actuators.get_mut(camera_uuid)) {
+            (Some(saved), Some(current)) => {
+                current.parameters = saved.parameters;
+                current.closest_points = saved.closest_points;
+                current.furthest_points = saved.furthest_points;
+            }
+            (Some(saved), None) => {
+                actuators.insert(*camera_uuid, saved);
+            }
+            (None, _) => {
+                actuators.shift_remove(camera_uuid);
+            }
+        }
+        Ok(())
     }
 
     /// Turns off the channel functions and camera types the camera wrote under `saved` and no
