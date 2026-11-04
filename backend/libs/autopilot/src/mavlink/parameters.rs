@@ -15,6 +15,23 @@ use crate::{
     parameters::Parameter,
 };
 
+/// How many times a parameter write is sent before giving up on a confirmation.
+const SET_ATTEMPTS: u32 = 5;
+/// How long the autopilot has to confirm one sent write.
+const SET_CONFIRM_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(5);
+/// How long a confirmation holding another value waits for one holding the sent value before
+/// the write counts as refused.
+const SET_REFUSAL_GRACE: tokio::time::Duration = tokio::time::Duration::from_secs(1);
+
+/// What one sent parameter write got back.
+#[derive(Debug)]
+enum Confirmation {
+    Accepted(Parameter),
+    /// Only another value, the one the autopilot kept.
+    Refused(f32),
+    Silent,
+}
+
 /// While an apply runs, the value each parameter had before its first write, oldest first.
 static UNDO_LOG: std::sync::Mutex<Option<Vec<Parameter>>> = std::sync::Mutex::new(None);
 
@@ -384,29 +401,47 @@ impl MavlinkComponent {
         Err(anyhow!("Failed after too many tries"))
     }
 
-    #[instrument(level = "debug", skip(inner))]
-    async fn wait_for_param(inner: Arc<ComponentInner>, param_name: &str) -> Result<Parameter> {
-        let mut receiver = inner.get_receiver().await;
-        let encoding = *inner.encoding.read().await;
-
-        let mut max_retries = 5;
-        while max_retries > 0 {
-            max_retries -= 1;
-            let wait_for_param = Self::wait_for_param_inner(&mut receiver, param_name, encoding);
-
-            match tokio::time::timeout(tokio::time::Duration::from_secs(5), wait_for_param).await {
-                Ok(res @ Ok(_)) => return res,
+    /// Waits for the confirmation of one sent write of `name` with `sent_value`.
+    ///
+    /// A PARAM_VALUE for the parameter can still be in flight from before the write: an echo of
+    /// an earlier write or an answer to someone else's read. One holding another value only
+    /// means a refusal when no matching one follows it shortly.
+    async fn confirm_attempt(
+        receiver: &mut broadcast::Receiver<Message>,
+        name: &str,
+        sent_value: f32,
+        encoding: ParamEncodingType,
+    ) -> Result<Confirmation> {
+        let mut deadline = tokio::time::Instant::now() + SET_CONFIRM_TIMEOUT;
+        let mut other_value = None;
+        loop {
+            let received = tokio::time::timeout_at(
+                deadline,
+                Self::wait_for_param_inner(receiver, name, encoding),
+            )
+            .await;
+            let recv_parameter = match received {
+                Ok(Ok(parameter)) => parameter,
                 Ok(Err(error)) => {
-                    warn!("Retrying after error: {error:?}");
+                    warn!("Failed reading the confirmation for {name}: {error:?}");
+                    // A closed receiver fails at once, so pace the retries until the deadline.
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    continue;
                 }
-                Err(_) => {
-                    warn!("Timeout waiting for param {:?}, retrying", param_name);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
+                Err(_) => break,
+            };
+            let got_value = recv_parameter
+                .param_value(encoding)
+                .with_context(|| format!("Failed checking the value got for {name}"))?;
+            if got_value == sent_value {
+                return Ok(Confirmation::Accepted(recv_parameter));
             }
+            if other_value.is_none() {
+                deadline = deadline.min(tokio::time::Instant::now() + SET_REFUSAL_GRACE);
+            }
+            other_value = Some(got_value);
         }
-
-        Err(anyhow!("Failed after too many tries"))
+        Ok(other_value.map_or(Confirmation::Silent, Confirmation::Refused))
     }
 
     #[instrument(level = "trace", skip(receiver))]
@@ -484,50 +519,43 @@ impl MavlinkComponent {
             param_type: parameter.param_type(),
         });
 
-        let mut send_retries = 5;
-        loop {
-            if let Err(error) = sender.send(Message::ToBeSent((header, message.clone()))) {
-                send_retries -= 1;
-                if send_retries == 0 {
-                    return Err(anyhow!(
-                        "Failed sending PARAM_SET for {}: {error:?}",
-                        parameter.name
-                    ));
-                }
-                warn!("Failed sending PARAM_SET: {error:?}");
+        let name = &parameter.name;
+        let sent_value = parameter
+            .param_value(encoding)
+            .with_context(|| format!("Failed checking the value sent for {name}"))?;
+        // Subscribed before sending, so a quick reply is not missed.
+        let mut receiver = inner.get_receiver().await;
 
+        // A value the autopilot kept instead of the sent one, from the last attempt.
+        let mut refused_with = None;
+        for attempt in 1..=SET_ATTEMPTS {
+            if let Err(error) = sender.send(Message::ToBeSent((header, message.clone()))) {
+                warn!("Failed sending PARAM_SET for {name}: {error:?}");
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 continue;
             }
 
-            let recv_parameter = match Self::wait_for_param(inner.clone(), &parameter.name).await {
-                Ok(parameter) => parameter,
-                Err(error) => {
-                    // wait_for_param already exhausted its retries; do not loop
-                    // forever here (that held MANAGER.write() for tens of seconds).
-                    let name = &parameter.name;
-                    return Err(error)
-                        .context(format!("Failed confirming parameter {name} after set"));
-                }
-            };
+            let other_value =
+                match Self::confirm_attempt(&mut receiver, name, sent_value, encoding).await? {
+                    Confirmation::Accepted(parameter) => return Ok(parameter),
+                    Confirmation::Refused(got_value) => Some(got_value),
+                    Confirmation::Silent => None,
+                };
 
-            let (Ok(got_value), Ok(sent_value)) = (
-                recv_parameter.param_value(encoding),
-                parameter.param_value(encoding),
-            ) else {
-                let name = &parameter.name;
-                return Err(anyhow!("Failed checking param values for {name} after set"));
-            };
-
-            if got_value != sent_value {
-                return Err(anyhow!(
-                    "Failed setting parameter {:?}: Autopilot didn't accept the value: Sent {sent_value:?}, got {got_value:?}",
-                    parameter.name
-                ));
-            }
-
-            return Ok(recv_parameter);
+            // The write or its reply may have been lost, so a refusal is only trusted once
+            // every attempt got one.
+            refused_with = other_value;
+            warn!("No confirmation for {name:?} (attempt {attempt}/{SET_ATTEMPTS})");
         }
+
+        if let Some(got_value) = refused_with {
+            return Err(anyhow!(
+                "Failed setting parameter {name:?}: Autopilot didn't accept the value: Sent {sent_value:?}, got {got_value:?}"
+            ));
+        }
+        Err(anyhow!(
+            "Failed confirming parameter {name} after set: Failed after too many tries"
+        ))
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -551,5 +579,68 @@ pub(crate) fn observe_param_value_from_sync(parameter: &Parameter, param_index: 
             &expected,
             crate::health::ObserveSource::LiveChange,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mavlink::ardupilotmega::{MavParamType, PARAM_VALUE_DATA};
+
+    use super::*;
+
+    const NAME: &str = "SERVO11_MAX";
+
+    fn param_value(value: f32) -> Message {
+        Message::Received((
+            MavHeader::default(),
+            MavMessage::PARAM_VALUE(PARAM_VALUE_DATA {
+                param_value: value,
+                param_id: NAME.into(),
+                param_type: MavParamType::MAV_PARAM_TYPE_REAL32,
+                ..Default::default()
+            }),
+        ))
+    }
+
+    async fn confirm(sent: f32, replies: &[f32]) -> (Confirmation, tokio::time::Duration) {
+        let (sender, mut receiver) = broadcast::channel(16);
+        for reply in replies {
+            sender.send(param_value(*reply)).unwrap();
+        }
+        let start = tokio::time::Instant::now();
+        let confirmation =
+            MavlinkComponent::confirm_attempt(&mut receiver, NAME, sent, ParamEncodingType::CCast)
+                .await
+                .unwrap();
+        (confirmation, start.elapsed())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stale_value_before_the_sent_one_is_accepted() {
+        let (confirmation, _) = confirm(2.0, &[1.0, 2.0]).await;
+        assert!(
+            matches!(confirmation, Confirmation::Accepted(_)),
+            "{confirmation:?}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn only_another_value_is_a_refusal_after_the_grace() {
+        let (confirmation, elapsed) = confirm(2.0, &[1.0]).await;
+        assert!(
+            matches!(confirmation, Confirmation::Refused(1.0)),
+            "{confirmation:?}"
+        );
+        assert!(elapsed < SET_CONFIRM_TIMEOUT, "{elapsed:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn no_reply_is_silent_after_the_timeout() {
+        let (confirmation, elapsed) = confirm(2.0, &[]).await;
+        assert!(
+            matches!(confirmation, Confirmation::Silent),
+            "{confirmation:?}"
+        );
+        assert_eq!(elapsed, SET_CONFIRM_TIMEOUT);
     }
 }
