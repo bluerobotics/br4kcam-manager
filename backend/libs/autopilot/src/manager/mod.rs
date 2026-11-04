@@ -474,16 +474,11 @@ impl Manager {
         Ok(())
     }
 
+    /// Writes every default. The channels and camera id the camera leaves are turned off by
+    /// [`Self::update_config`], which also keeps the saved setup when the reset fails.
     #[instrument(level = "debug")]
     pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
-        let actuators = CameraActuators::default();
-        let config = api::ActuatorsConfig::from(&actuators);
-
-        {
-            let mut manager = MANAGER.get().context("Not available")?.write().await;
-            manager.settings.actuators.insert(*camera_uuid, actuators);
-        }
-
+        let config = api::ActuatorsConfig::from(&CameraActuators::default());
         Self::update_config(camera_uuid, &config, true).await
     }
 }
