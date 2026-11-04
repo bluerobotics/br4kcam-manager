@@ -567,6 +567,16 @@ pub(super) async fn write_param(param_name: &str, value: ParamType, force: bool)
     Ok(true)
 }
 
+/// Clears `SERVOn_REVERSED` on a channel a role with no reversed setting takes, so the channel
+/// does not stay reversed from the role that had it before.
+pub(super) async fn clear_channel_reversed(channel: ServoChannel) -> Result<()> {
+    let param_name = format!("SERVO{}_REVERSED", channel as u8);
+    write_param(&param_name, ParamType::UINT8(0), false)
+        .await
+        .with_context(|| format!("Failed clearing {param_name}"))?;
+    Ok(())
+}
+
 /// Updates the saved setup of `camera_uuid`, starting from the defaults when it has none yet.
 pub(super) async fn store_parameters(
     camera_uuid: &Uuid,

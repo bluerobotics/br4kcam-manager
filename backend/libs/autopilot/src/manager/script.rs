@@ -9,7 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     CameraActuators, api, generate_update_channel_param_function,
-    manager::{Manager, get_output_raw_from_channel, store_parameters, write_param},
+    manager::{
+        Manager, clear_channel_reversed, get_output_raw_from_channel, store_parameters, write_param,
+    },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -190,6 +192,9 @@ impl Manager {
             .await
             .context("Failed setting the script channel function")?;
             channel_moved = old_channel != channel;
+            if overwrite || channel_moved {
+                clear_channel_reversed(channel).await?;
+            }
             store_parameters(camera_uuid, |stored| stored.script_channel = channel).await?;
         }
 
