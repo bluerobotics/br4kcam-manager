@@ -211,7 +211,7 @@ impl Manager {
         parameters: &api::ActuatorsParametersConfig,
         force_apply: bool,
     ) -> Result<bool> {
-        let (param_name, new_value, old_value) = {
+        let (param_name, new_value) = {
             let mut manager = crate::manager::MANAGER
                 .get()
                 .context("Not available")?
@@ -233,26 +233,25 @@ impl Manager {
                 (None, false) => return Ok(false),
             };
 
-            (param_name, new_value, current_parameters.tilt_mnt_type)
+            (param_name, new_value)
         };
 
         let mavlink = crate::mavlink::component()?;
         let encoding = mavlink.encoding().await;
         let mut param = mavlink.get_param(&param_name, false).await?;
         let old_value_encoded = param.param_value(encoding)?;
+        let old_value = param.value;
         param
             .value
             .set_value(ParamType::INT32(new_value as i32), encoding)?;
         let new_value_encoded = param.param_value(encoding)?;
+        let written_value = param.value;
         if (old_value_encoded != new_value_encoded) || force_apply {
             match mavlink.set_param(param).await {
                 Ok(_) => {
                     if old_value_encoded != new_value_encoded {
                         info!(
-                            "{} changed from {:?} to {:?}",
-                            stringify!(tilt_mnt_type),
-                            old_value,
-                            new_value
+                            "{param_name} changed from {old_value:?} to {written_value:?} ({new_value:?})"
                         );
                     }
                     let mut manager = crate::manager::MANAGER
