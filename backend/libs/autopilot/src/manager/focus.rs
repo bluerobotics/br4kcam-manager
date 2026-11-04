@@ -18,6 +18,7 @@ impl Manager {
         overwrite: bool,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
+        let mut channel_moved = false;
 
         if let Some(channel) = parameters.focus_channel {
             let saved = Self::saved_parameters(camera_uuid).await?;
@@ -31,6 +32,7 @@ impl Manager {
             )
             .await
             .context("Failed setting the focus channel function")?;
+            channel_moved = saved.focus_channel != channel;
             store_parameters(camera_uuid, |stored| {
                 stored.focus_channel = channel;
                 stored.script_function = script_function;
@@ -41,8 +43,13 @@ impl Manager {
                 Self::apply_script_function(camera_uuid, script_function, overwrite).await?;
         }
 
-        Self::update_focus_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
-            .await?;
+        // A channel the role moves to has none of its settings yet.
+        Self::update_focus_channel_parameters(
+            camera_uuid,
+            parameters,
+            autopilot_reboot_required || channel_moved,
+        )
+        .await?;
 
         Ok(autopilot_reboot_required)
     }
