@@ -260,8 +260,8 @@ impl Manager {
     /// rebooted before [`Self::finalize_config_after_reboot`] (enable/gain + save).
     ///
     /// A camera with no saved setup gets every parameter written. When the apply fails, the
-    /// saved setup goes back to what it was, so a retry writes again what may not have
-    /// reached the autopilot instead of taking it as already written.
+    /// parameters it wrote and the saved setup go back to what they were, so a retry writes
+    /// again what may not have reached the autopilot instead of taking it as already written.
     #[instrument(level = "debug", skip(new_config))]
     pub async fn update_config(
         camera_uuid: &Uuid,
@@ -279,14 +279,34 @@ impl Manager {
             .cloned();
         let overwrite = overwrite || saved.is_none();
 
+        mavlink::parameters::start_undo_log();
         let result = Self::apply_config(camera_uuid, new_config, overwrite, saved.as_ref()).await;
-        if let Err(error) = &result
-            && let Err(restore_error) = Self::restore_saved_setup(camera_uuid, saved).await
-        {
-            // The apply error is the one the caller acts on.
-            error!("Failed restoring the saved setup after {error:?}: {restore_error:?}");
+        let undo_log = mavlink::parameters::take_undo_log();
+        if let Err(error) = &result {
+            Self::undo_writes(undo_log).await;
+            if let Err(restore_error) = Self::restore_saved_setup(camera_uuid, saved).await {
+                // The apply error is the one the caller acts on.
+                error!("Failed restoring the saved setup after {error:?}: {restore_error:?}");
+            }
         }
         result
+    }
+
+    /// Writes back, newest first, the values a failed apply replaced, so the autopilot keeps
+    /// no parameter the restored setup does not know about. Stops at the first failure, as the
+    /// link is then likely down.
+    async fn undo_writes(undo_log: Vec<crate::parameters::Parameter>) {
+        let Ok(mavlink) = crate::mavlink::component() else {
+            return;
+        };
+        for parameter in undo_log.into_iter().rev() {
+            let name = parameter.name.clone();
+            if let Err(error) = mavlink.set_param(parameter).await {
+                error!("Failed undoing {name} after a failed apply: {error:?}");
+                return;
+            }
+            info!("{name} restored after a failed apply");
+        }
     }
 
     async fn apply_config(
