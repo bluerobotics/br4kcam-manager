@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     api, generate_update_channel_param_function,
-    manager::{Manager, store_parameters, write_param},
+    manager::{Manager, clear_channel_reversed, store_parameters, write_param},
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -30,6 +30,9 @@ impl Manager {
             .await
             .context("Failed setting the zoom channel function")?;
             channel_moved = old_channel != channel;
+            if overwrite || channel_moved {
+                clear_channel_reversed(channel).await?;
+            }
             store_parameters(camera_uuid, |stored| stored.zoom_channel = channel).await?;
         }
 
