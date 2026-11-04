@@ -33,6 +33,20 @@ pub static MANAGER: OnceCell<RwLock<Manager>> = OnceCell::new();
 /// Lock order: CONFIG_APPLY → MANAGER → mavlink txn.
 pub static CONFIG_APPLY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Set while a change that takes an autopilot reboot may not have taken effect yet: an apply
+/// asked for a reboot that has not finished, or a failed apply could not undo its writes.
+/// Function and type changes already on the autopilot are not written again, so without
+/// this, the next apply would not see that a reboot is still owed.
+static REBOOT_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn set_reboot_pending(pending: bool) {
+    REBOOT_PENDING.store(pending, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn reboot_pending() -> bool {
+    REBOOT_PENDING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Hold [`CONFIG_APPLY`] for `under_apply`. If it returns `true`, drop the mutex,
 /// run `reboot`, re-acquire, then run `finalize`.
 ///
@@ -282,11 +296,17 @@ impl Manager {
         mavlink::parameters::start_undo_log();
         let result = Self::apply_config(camera_uuid, new_config, overwrite, saved.as_ref()).await;
         let undo_log = mavlink::parameters::take_undo_log();
-        if let Err(error) = &result {
-            Self::undo_writes(undo_log).await;
-            if let Err(restore_error) = Self::restore_saved_setup(camera_uuid, saved).await {
-                // The apply error is the one the caller acts on.
-                error!("Failed restoring the saved setup after {error:?}: {restore_error:?}");
+        match &result {
+            Ok(true) => set_reboot_pending(true),
+            Ok(false) => {}
+            Err(error) => {
+                if !Self::undo_writes(undo_log).await {
+                    set_reboot_pending(true);
+                }
+                if let Err(restore_error) = Self::restore_saved_setup(camera_uuid, saved).await {
+                    // The apply error is the one the caller acts on.
+                    error!("Failed restoring the saved setup after {error:?}: {restore_error:?}");
+                }
             }
         }
         result
@@ -294,19 +314,23 @@ impl Manager {
 
     /// Writes back, newest first, the values a failed apply replaced, so the autopilot keeps
     /// no parameter the restored setup does not know about. Stops at the first failure, as the
-    /// link is then likely down.
-    async fn undo_writes(undo_log: Vec<crate::parameters::Parameter>) {
+    /// link is then likely down. Returns whether every write was undone.
+    async fn undo_writes(undo_log: Vec<crate::parameters::Parameter>) -> bool {
+        if undo_log.is_empty() {
+            return true;
+        }
         let Ok(mavlink) = crate::mavlink::component() else {
-            return;
+            return false;
         };
         for parameter in undo_log.into_iter().rev() {
             let name = parameter.name.clone();
             if let Err(error) = mavlink.set_param(parameter).await {
                 error!("Failed undoing {name} after a failed apply: {error:?}");
-                return;
+                return false;
             }
             info!("{name} restored after a failed apply");
         }
+        true
     }
 
     async fn apply_config(
@@ -315,7 +339,7 @@ impl Manager {
         overwrite: bool,
         saved: Option<&CameraActuators>,
     ) -> Result<bool> {
-        let mut autopilot_reboot_required = overwrite;
+        let mut autopilot_reboot_required = overwrite || reboot_pending();
         let mut camera_moved = false;
 
         if let Some(parameters) = &new_config.parameters {
@@ -492,6 +516,7 @@ impl Manager {
             Self::update_script_gain(camera_uuid, parameters, true).await?;
         }
         Self::save_actuators_settings().await?;
+        set_reboot_pending(false);
         owned_parameters::rebuild().await;
         owned_parameters::reevaluate_after_apply().await;
         Ok(())
