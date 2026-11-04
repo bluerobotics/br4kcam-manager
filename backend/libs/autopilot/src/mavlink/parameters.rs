@@ -15,6 +15,24 @@ use crate::{
     parameters::Parameter,
 };
 
+/// While an apply runs, the value each parameter had before its first write, oldest first.
+static UNDO_LOG: std::sync::Mutex<Option<Vec<Parameter>>> = std::sync::Mutex::new(None);
+
+/// Starts recording the values parameter writes replace, see [`take_undo_log`].
+pub(crate) fn start_undo_log() {
+    *UNDO_LOG.lock().expect("undo log lock") = Some(Vec::new());
+}
+
+/// Stops recording and returns the replaced values, oldest first. Writing them back in
+/// reverse order undoes the writes made since [`start_undo_log`].
+pub(crate) fn take_undo_log() -> Vec<Parameter> {
+    UNDO_LOG
+        .lock()
+        .expect("undo log lock")
+        .take()
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub enum ParamEncodingType {
     CCast,
@@ -429,6 +447,15 @@ impl MavlinkComponent {
     #[instrument(level = "debug", skip(self))]
     pub async fn set_param(&self, parameter: Parameter) -> Result<Parameter> {
         let _txn = self.inner.txn.lock().await;
+        let recording = UNDO_LOG.lock().expect("undo log lock").is_some();
+        if recording && let Some(old) = self.inner.parameters.read().await.get(&parameter.name) {
+            let old = old.clone();
+            if let Some(log) = UNDO_LOG.lock().expect("undo log lock").as_mut()
+                && !log.iter().any(|logged| logged.name == old.name)
+            {
+                log.push(old);
+            }
+        }
         Self::set_param_inner(self.inner.clone(), parameter).await
     }
 
