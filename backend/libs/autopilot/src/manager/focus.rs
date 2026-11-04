@@ -10,6 +10,7 @@ use crate::{
 };
 
 impl Manager {
+    /// The channel the role leaves is turned off by [`Manager::update_config`].
     #[instrument(level = "debug", skip(parameters))]
     pub async fn update_focus_parameters(
         camera_uuid: &Uuid,
@@ -18,70 +19,20 @@ impl Manager {
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
 
-        if let Some(channel) = &parameters.focus_channel {
-            // Snapshot under a short write with no await inside, so the MAVLink I/O
-            // below never runs while MANAGER is locked.
-            let (old_channel, stored_script_function) = {
-                let mut manager = crate::manager::MANAGER
-                    .get()
-                    .context("Not available")?
-                    .write()
-                    .await;
-                let current_parameters = &mut manager
-                    .settings
-                    .actuators
-                    .entry(*camera_uuid)
-                    .or_default()
-                    .parameters;
-                (
-                    current_parameters.focus_channel,
-                    current_parameters.script_function,
-                )
-            };
-            let script_function = parameters.script_function.unwrap_or(stored_script_function);
-
-            let mavlink = crate::mavlink::component()?;
-            let encoding = mavlink.encoding().await;
-
-            // Disables the old focus_channel:
-            if &old_channel != channel {
-                let param_name = format!("SERVO{}_FUNCTION", old_channel as u8);
-
-                let mut param = mavlink.get_param(&param_name, false).await?;
-                let old_value = param.value;
-                param
-                    .value
-                    .set_value(ParamType::INT16(ChannelFunction::Disabled as i16), encoding)?;
-                let new_value = param.value;
-
-                if old_value != new_value {
-                    match mavlink.set_param(param).await {
-                        Ok(_) => {
-                            info!(
-                                "focus_channel (SERVO{}) changed from {:?} to {new_value:?}",
-                                old_channel as u8, old_value
-                            );
-                            autopilot_reboot_required = true;
-                        }
-                        Err(error) => {
-                            return Err(error).context(
-                                "Failed to disable the old focus channel when setting parameter",
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Sets the new focus_channel, or keeps it when the autopilot already holds it:
+        if let Some(channel) = parameters.focus_channel {
+            let saved = Self::saved_parameters(camera_uuid).await?;
+            let script_function = parameters.script_function.unwrap_or(saved.script_function);
+            // The focus servo input is the script:
+            let function = Self::focus_channel_function(script_function)?;
             autopilot_reboot_required |= write_param(
-                &format!("SERVO{}_FUNCTION", *channel as u8),
-                ParamType::INT16(Self::focus_channel_function(script_function)? as i16),
+                &format!("SERVO{}_FUNCTION", channel as u8),
+                ParamType::INT16(function as i16),
                 overwrite,
             )
             .await
             .context("Failed setting the focus channel function")?;
             store_parameters(camera_uuid, |stored| {
-                stored.focus_channel = *channel;
+                stored.focus_channel = channel;
                 stored.script_function = script_function;
             })
             .await?;
