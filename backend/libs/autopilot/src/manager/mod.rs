@@ -274,6 +274,7 @@ impl Manager {
             .get(camera_uuid)
             .cloned();
         let mut autopilot_reboot_required = overwrite;
+        let mut camera_moved = false;
 
         if let Some(parameters) = &new_config.parameters {
             let current = saved
@@ -284,6 +285,8 @@ impl Manager {
                 merge_struct::merge(&api::ActuatorsParametersConfig::from(&current), parameters)
                     .context("Failing to merge structs")?,
             );
+            // Mount and script parameters are numbered by the camera id.
+            camera_moved = saved.is_some() && current.camera_id != next.camera_id;
 
             autopilot_reboot_required |=
                 Self::update_camera_parameters(camera_uuid, parameters, overwrite).await?;
@@ -297,8 +300,13 @@ impl Manager {
             autopilot_reboot_required |=
                 Self::update_zoom_parameters(camera_uuid, parameters, overwrite).await?;
 
-            autopilot_reboot_required |=
-                Self::update_tilt_parameters(camera_uuid, parameters, overwrite).await?;
+            autopilot_reboot_required |= Self::update_tilt_parameters(
+                camera_uuid,
+                parameters,
+                overwrite,
+                overwrite || camera_moved,
+            )
+            .await?;
 
             if let Some(saved) = &saved {
                 autopilot_reboot_required |=
@@ -333,7 +341,7 @@ impl Manager {
             return Ok(true);
         }
 
-        let force_script_params = reload_script || overwrite;
+        let force_script_params = reload_script || overwrite || camera_moved;
         if let Some(parameters) = &new_config.parameters {
             Self::update_script_enable(camera_uuid, parameters, force_script_params).await?;
             Self::update_script_gain(camera_uuid, parameters, force_script_params).await?;

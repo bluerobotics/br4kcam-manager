@@ -19,11 +19,13 @@ pub(super) fn tilt_mount_id(camera_id: api::CameraID) -> TiltChannelFunction {
 
 impl Manager {
     /// The channel the role leaves is turned off by [`Manager::update_config`].
+    /// `force_mount` writes the mount parameters even when the saved setup has them.
     #[instrument(level = "debug", skip(parameters))]
     pub async fn update_tilt_parameters(
         camera_uuid: &Uuid,
         parameters: &api::ActuatorsParametersConfig,
         overwrite: bool,
+        force_mount: bool,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
         let mut channel_moved = false;
@@ -43,16 +45,16 @@ impl Manager {
 
         // A channel the role moves to has none of its settings yet.
         let force_channel = autopilot_reboot_required || channel_moved;
+        let force_mount = autopilot_reboot_required || force_mount;
 
         Self::update_tilt_channel_min(camera_uuid, parameters, force_channel).await?;
         Self::update_tilt_channel_trim(camera_uuid, parameters, force_channel).await?;
         Self::update_tilt_channel_max(camera_uuid, parameters, force_channel).await?;
         Self::update_tilt_channel_reversed(camera_uuid, parameters, force_channel).await?;
 
-        Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, autopilot_reboot_required).await?;
-        Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, autopilot_reboot_required).await?;
-        let mount_reboot =
-            Self::update_tilt_mnt_type(camera_uuid, parameters, autopilot_reboot_required).await?;
+        Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, force_mount).await?;
+        Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, force_mount).await?;
+        let mount_reboot = Self::update_tilt_mnt_type(camera_uuid, parameters, force_mount).await?;
 
         Ok(autopilot_reboot_required || mount_reboot)
     }
