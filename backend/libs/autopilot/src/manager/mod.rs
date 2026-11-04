@@ -352,6 +352,7 @@ impl Manager {
             );
             // Mount and script parameters are numbered by the camera id.
             camera_moved = saved.is_some() && current.camera_id != next.camera_id;
+            Self::refuse_taking_other_cameras(camera_uuid, &next).await?;
 
             autopilot_reboot_required |=
                 Self::update_camera_parameters(camera_uuid, parameters, overwrite).await?;
@@ -446,6 +447,37 @@ impl Manager {
             }
             (None, _) => {
                 actuators.shift_remove(camera_uuid);
+            }
+        }
+        Ok(())
+    }
+
+    /// Refuses a setup that gives a channel function or camera type a value other than the one
+    /// another camera's setup holds it with, so an apply or a reset never takes over a channel
+    /// another camera uses. Checked before anything is written.
+    async fn refuse_taking_other_cameras(
+        camera_uuid: &Uuid,
+        next: &ActuatorsParameters,
+    ) -> Result<()> {
+        let mut ours = IndexMap::new();
+        owned_parameters::push_all_expectations(next, &mut ours);
+        let manager = MANAGER.get().context("Not available")?.read().await;
+        for (uuid, actuators) in &manager.settings.actuators {
+            if uuid == camera_uuid {
+                continue;
+            }
+            let mut theirs = IndexMap::new();
+            owned_parameters::push_all_expectations(&actuators.parameters, &mut theirs);
+            for (name, value) in &ours {
+                if released_value(name).is_some()
+                    && theirs
+                        .get(name)
+                        .is_some_and(|their_value| their_value != value)
+                {
+                    anyhow::bail!(
+                        "{name} is used by camera {uuid}, pick another channel or camera id"
+                    );
+                }
             }
         }
         Ok(())
