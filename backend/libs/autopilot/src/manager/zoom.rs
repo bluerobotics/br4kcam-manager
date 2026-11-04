@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     api, generate_update_channel_param_function,
-    manager::{Manager, clear_channel_reversed, store_parameters, write_param},
+    manager::{
+        Manager, clear_channel_reversed,
+        plan::{Change, Planner},
+        store_parameters, write_param,
+    },
     parameters::{ActuatorsParameters, ChannelFunction, ParamType},
 };
 
@@ -101,6 +105,49 @@ impl Manager {
         UINT16,
         zoom_channel
     );
+}
+
+/// The zoom servo: `SERVO{zoom_channel}_FUNCTION` and its PWM range. Returns whether the
+/// function is written.
+pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
+    let Change {
+        current,
+        next,
+        incoming,
+        overwrite,
+        ..
+    } = *change;
+    let mut written = overwrite;
+
+    let mut channel_moved = false;
+    if incoming.zoom_channel.is_some() {
+        written |= planner.channel_function(
+            next.zoom_channel,
+            Manager::zoom_channel_function(),
+            overwrite,
+        );
+        channel_moved = current.zoom_channel != next.zoom_channel;
+        if overwrite || channel_moved {
+            planner.clear_reversed(next.zoom_channel);
+        }
+    }
+    // A channel the role moves to has none of its settings yet.
+    planner.channel_range(
+        next.zoom_channel,
+        [
+            current.zoom_channel_min,
+            current.zoom_channel_trim,
+            current.zoom_channel_max,
+        ],
+        [
+            next.zoom_channel_min,
+            next.zoom_channel_trim,
+            next.zoom_channel_max,
+        ],
+        written || channel_moved,
+    );
+
+    written
 }
 
 pub(super) fn push_owned_expectations(
