@@ -26,37 +26,35 @@ impl Manager {
         overwrite: bool,
     ) -> Result<bool> {
         let mut autopilot_reboot_required = overwrite;
+        let mut channel_moved = false;
 
         if let Some(channel) = parameters.tilt_channel {
-            let camera_id = Self::saved_parameters(camera_uuid).await?.camera_id;
+            let saved = Self::saved_parameters(camera_uuid).await?;
             autopilot_reboot_required |= write_param(
                 &format!("SERVO{}_FUNCTION", channel as u8),
-                ParamType::INT16(Self::tilt_channel_function(camera_id) as i16),
+                ParamType::INT16(Self::tilt_channel_function(saved.camera_id) as i16),
                 overwrite,
             )
             .await
             .context("Failed setting the tilt channel function")?;
+            channel_moved = saved.tilt_channel != channel;
             store_parameters(camera_uuid, |stored| stored.tilt_channel = channel).await?;
         }
 
-        Self::update_tilt_channel_parameters(camera_uuid, parameters, autopilot_reboot_required)
-            .await
-            .map(|reboot| autopilot_reboot_required | reboot)
-    }
-    #[instrument(level = "debug", skip(parameters))]
-    pub async fn update_tilt_channel_parameters(
-        camera_uuid: &Uuid,
-        parameters: &api::ActuatorsParametersConfig,
-        force_apply: bool,
-    ) -> Result<bool> {
-        Self::update_tilt_channel_min(camera_uuid, parameters, force_apply).await?;
-        Self::update_tilt_channel_trim(camera_uuid, parameters, force_apply).await?;
-        Self::update_tilt_channel_max(camera_uuid, parameters, force_apply).await?;
+        // A channel the role moves to has none of its settings yet.
+        let force_channel = autopilot_reboot_required || channel_moved;
 
-        Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, force_apply).await?;
-        Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, force_apply).await?;
-        Self::update_tilt_channel_reversed(camera_uuid, parameters, force_apply).await?;
-        Self::update_tilt_mnt_type(camera_uuid, parameters, force_apply).await
+        Self::update_tilt_channel_min(camera_uuid, parameters, force_channel).await?;
+        Self::update_tilt_channel_trim(camera_uuid, parameters, force_channel).await?;
+        Self::update_tilt_channel_max(camera_uuid, parameters, force_channel).await?;
+        Self::update_tilt_channel_reversed(camera_uuid, parameters, force_channel).await?;
+
+        Self::update_tilt_mnt_pitch_min(camera_uuid, parameters, autopilot_reboot_required).await?;
+        Self::update_tilt_mnt_pitch_max(camera_uuid, parameters, autopilot_reboot_required).await?;
+        let mount_reboot =
+            Self::update_tilt_mnt_type(camera_uuid, parameters, autopilot_reboot_required).await?;
+
+        Ok(autopilot_reboot_required || mount_reboot)
     }
 
     #[instrument(level = "debug", skip(parameters))]
