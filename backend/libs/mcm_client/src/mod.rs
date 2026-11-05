@@ -860,6 +860,13 @@ mod tests {
     }
 
     #[test]
+    fn firmware_major_parses_camera_strings() {
+        assert_eq!(firmware_major("18.010.U35.5_0054_V16(260305)"), Some(16));
+        assert_eq!(firmware_major("18.010.U35.6_0054_V18(261030)"), Some(18));
+        assert_eq!(firmware_major("garbage"), None);
+    }
+
+    #[test]
     fn stream_needs_recreation_predicate() {
         // Only Stopped means current failure; Idle may still carry a stale MCM error string.
         assert!(!stream_needs_recreation(StreamStatusState::Idle));
