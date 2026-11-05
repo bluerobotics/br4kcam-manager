@@ -166,6 +166,10 @@ export type CameraControl = {
     "action": "restart"
 } | {
     "action": "setRecommendedCameraSettings"
+} | {
+    "action": "getH265Support"
+} | {
+    "action": "setH265"
 });
 
 export type VideoChannelValue = 0 /* MainStream */ | 1 /* AuxiliaryStream */ | 2 /* ThirdStream */;
