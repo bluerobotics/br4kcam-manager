@@ -308,7 +308,9 @@ pub(crate) fn emit_camera_control_update(
             }
             event.video_parameters = Some(result.clone());
         }
-        CameraAction::SetRecommendedCameraSettings | CameraAction::Restart => {
+        CameraAction::SetRecommendedCameraSettings
+        | CameraAction::SetH265
+        | CameraAction::Restart => {
             tokio::spawn(reconcile_snapshot(camera_uuid).instrument(Span::current()));
             return;
         }
