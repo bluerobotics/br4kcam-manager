@@ -457,12 +457,33 @@ pub(crate) fn plan_apply(
         tracing::warn!("Calibration points are not applied yet, the saved ones are kept");
     }
 
-    let incoming = config.parameters.clone().unwrap_or_default();
+    let mut incoming = config.parameters.clone().unwrap_or_default();
     let current = &base.parameters;
-    let next = ActuatorsParameters::from(
+    let mut next = ActuatorsParameters::from(
         merge_struct::merge(&api::ActuatorsParametersConfig::from(current), &incoming)
             .context("Failing to merge structs")?,
     );
+    // The camera id is not picked by the user, and it numbers the mount, so two cameras with
+    // their own tilt servos under one id would both tilt on every tilt command. Such a camera
+    // moves to the id no other camera holds. Cameras on the same tilt servo share the mount.
+    if config.parameters.is_some() {
+        let others: Vec<&ActuatorsParameters> = snapshot
+            .saved
+            .iter()
+            .filter(|(uuid, _)| **uuid != camera_uuid)
+            .map(|(_, actuators)| &actuators.parameters)
+            .collect();
+        let taken: Vec<api::CameraID> = others.iter().map(|other| other.camera_id).collect();
+        if others.iter().any(|other| {
+            other.camera_id == next.camera_id && other.tilt_channel != next.tilt_channel
+        }) {
+            next.camera_id = [api::CameraID::CAM1, api::CameraID::CAM2]
+                .into_iter()
+                .find(|id| !taken.contains(id))
+                .context("Every camera id is used by another camera")?;
+            incoming.camera_id = Some(next.camera_id);
+        }
+    }
     // What a section moves away from is what the camera wrote: its saved setup, even when the
     // apply starts from the defaults. A camera with no saved setup wrote nothing, so it has no
     // old channel or camera type to turn off.
@@ -934,6 +955,40 @@ mod tests {
         }
         assert_eq!(written_value(&plan.releases, "CAM1_TYPE"), Some(0.0));
         assert!(plan.reboot);
+    }
+
+    #[test]
+    fn a_second_camera_on_its_own_tilt_servo_gets_its_own_mount() {
+        // Both default to CAM1; the second one tilts on another servo.
+        let snapshot = set_up(empty(), OTHER);
+        let config = parameters(api::ActuatorsParametersConfig {
+            focus_channel: Some(api::ServoChannel::SERVO7),
+            zoom_channel: Some(api::ServoChannel::SERVO8),
+            script_channel: Some(api::ServoChannel::SERVO9),
+            tilt_channel: Some(api::ServoChannel::SERVO15),
+            ..api::ActuatorsParametersConfig::from(&CameraActuators::default().parameters)
+        });
+        let plan = plan_apply(&snapshot, CAMERA, &config, false).unwrap();
+        assert_eq!(plan.next.parameters.camera_id, api::CameraID::CAM2);
+        assert_eq!(written_value(&plan.writes, "SERVO15_FUNCTION"), Some(13.0));
+        assert!(names(&plan.writes).contains(&"MNT2_TYPE"));
+
+        // A camera saved on the other camera's id before ids were assigned moves on its next apply.
+        let mut collided = applied(snapshot, CAMERA, &plan);
+        collided
+            .saved
+            .get_mut(&CAMERA)
+            .unwrap()
+            .parameters
+            .camera_id = api::CameraID::CAM1;
+        collided
+            .autopilot
+            .get_mut("SERVO15_FUNCTION")
+            .unwrap()
+            .value = ParamType::INT16(7);
+        let plan = plan_apply(&collided, CAMERA, &config, false).unwrap();
+        assert_eq!(plan.next.parameters.camera_id, api::CameraID::CAM2);
+        assert_eq!(written_value(&plan.writes, "SERVO15_FUNCTION"), Some(13.0));
     }
 
     #[test]
