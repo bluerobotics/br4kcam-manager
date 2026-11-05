@@ -285,7 +285,7 @@ fn cockpit_extras() {
     let cameras: Cameras = [test_camera()].into_iter().collect();
 
     contract_settings().bind(|| {
-        assert_json_snapshot!("cockpit_extras", cockpit::extras(&cameras));
+        assert_json_snapshot!("cockpit_extras", cockpit::extras(&cameras, false));
     });
 }
 
