@@ -95,6 +95,7 @@ pub struct Stream {
     stream_endpoints: Vec<Url>,
     state: StreamStatusState,
     error: Option<String>,
+    firmware_version: String,
 }
 
 /// Constructs our manager, Should be done inside main

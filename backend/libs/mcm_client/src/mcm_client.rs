@@ -117,6 +117,7 @@ impl MCMClient {
                         OnvifDeviceInformation {
                             manufacturer,
                             model,
+                            firmware_version,
                             ..
                         },
                 }) = &device.video_and_stream.video_source
@@ -153,6 +154,7 @@ impl MCMClient {
                     stream_endpoints,
                     state: device.state,
                     error: device.error.clone(),
+                    firmware_version: firmware_version.clone(),
                 })
             })
             .collect::<Vec<Stream>>();
