@@ -249,6 +249,7 @@ import ImageTab from '@/components/ImageTab.vue'
 import StreamsTab from '@/components/StreamsTab.vue'
 import H265Suggestion from '@/components/H265Suggestion.vue'
 import FirmwareUpdate from '@/components/FirmwareUpdate.vue'
+import { sameCamera } from '@/utils/firmwareVersion'
 import AutopilotRestartDialog from '@/components/AutopilotRestartDialog.vue'
 import SystemStatusDialog from '@/components/SystemStatusDialog.vue'
 import WarningToast from '@/components/WarningToast.vue'
@@ -554,7 +555,16 @@ const desiredCameraUuid = useRouteQuery<string | null>('uuid', null)
 watch(
   cameraOptions,
   (options) => {
-    if (selectedCameraUUID.value || options.length === 0) return
+    // A firmware update changes the camera's UUID: follow the selected camera to it.
+    const selected = selectedCameraUUID.value
+    const renamed = selected && !cameras.value.some((camera) => camera.uuid === selected)
+      ? cameras.value.find((camera) => sameCamera(camera.uuid, selected))
+      : undefined
+    if (renamed) {
+      selectedCameraUUID.value = renamed.uuid
+      return
+    }
+    if (selected || options.length === 0) return
     const desired = desiredCameraUuid.value
       ? options.find((option) => option.uuid === desiredCameraUuid.value)
       : null
