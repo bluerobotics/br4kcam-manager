@@ -11,6 +11,7 @@ declare module 'vue' {
     BasicSettings: typeof import('./src/components/BasicSettings.vue')['default']
     CopyFeedbackToast: typeof import('./src/components/CopyFeedbackToast.vue')['default']
     ErrorDialog: typeof import('./src/components/ErrorDialog.vue')['default']
+    H265Suggestion: typeof import('./src/components/H265Suggestion.vue')['default']
     HealthDiagnostics: typeof import('./src/components/HealthDiagnostics.vue')['default']
     ImageTab: typeof import('./src/components/ImageTab.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
