@@ -63,6 +63,9 @@ pub enum Action {
     /// Important: This is a wrapper, not part of the camera protocol
     #[serde(rename = "getH265Support")]
     GetH265Support,
+    /// Important: This is a wrapper, not part of the camera protocol
+    #[serde(rename = "setH265")]
+    SetH265,
 }
 
 /// Outcome of one reachability probe while waiting for a camera reboot.
@@ -99,6 +102,9 @@ fn control_inner(
             }
             Action::GetH265Support => {
                 return get_h265_support(camera_control.camera_uuid).await;
+            }
+            Action::SetH265 => {
+                return apply_h265(camera_control.camera_uuid).await;
             }
             _ => (),
         }
@@ -260,6 +266,32 @@ async fn get_h265_support(camera_uuid: Uuid) -> Result<serde_json::Value> {
         "reason": reason,
         "enabled": enabled,
     }))
+}
+
+/// Switch the main stream to H265 and make MCM recreate its stream.
+#[instrument(level = "debug")]
+async fn apply_h265(camera_uuid: Uuid) -> Result<serde_json::Value> {
+    use protocol::video::video_parameters::VideoEncodeTypeValue;
+
+    if let Some(reason) = mcm_client::h265_unsupported_reason(&camera_uuid).await? {
+        return Err(anyhow::anyhow!(reason));
+    }
+
+    info!("Switching {camera_uuid:?} main stream to H265");
+
+    let mut settings = get_main_stream_settings(camera_uuid).await?;
+    settings.encode_type = Some(VideoEncodeTypeValue::H265);
+    settings.pixel_list = None;
+    control_inner(Json(CameraControl {
+        camera_uuid,
+        action: Action::SetVideoParameterSettings(settings),
+    }))
+    .await?;
+
+    // The camera switches its encoder live (verified on V16), but MCM keeps the stream's old encode until the stream is recreated.
+    mcm_client::recreate_camera_stream(&camera_uuid).await?;
+
+    Ok(serde_json::Value::Null)
 }
 
 #[instrument(level = "debug")]
