@@ -57,6 +57,21 @@ pub fn error_indicates_actuators_not_configured(message: &str) -> bool {
     message.contains(ACTUATORS_NOT_CONFIGURED)
 }
 
+/// Whether any camera with persisted actuator settings has a motorized lens, i.e. needs
+/// the Lua script and focus/zoom controls.
+pub async fn any_motorized_camera() -> bool {
+    match MANAGER.get() {
+        Some(manager) => manager
+            .read()
+            .await
+            .settings
+            .actuators
+            .values()
+            .any(|actuators| actuators.parameters.has_motorized_lens()),
+        None => false,
+    }
+}
+
 /// UUIDs of every camera with persisted actuator settings, i.e. cameras this
 /// install expects to find. Empty when the manager is not up yet.
 pub async fn configured_cameras() -> Vec<Uuid> {
