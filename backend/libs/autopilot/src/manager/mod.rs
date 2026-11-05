@@ -182,6 +182,12 @@ impl Manager {
             COMMAND_LONG_DATA, CameraZoomType, MavCmd, MavMountMode, SetFocusType,
         };
 
+        if !parameters.has_motorized_lens()
+            && (new_state.focus.is_some() || new_state.zoom.is_some())
+        {
+            anyhow::bail!("A fixed-focus lens has no focus or zoom to control");
+        }
+
         let mavlink = crate::mavlink::component()?;
 
         if let Some(tilt) = new_state.tilt {
@@ -614,12 +620,14 @@ fn percentage_within_range(value: u16, min: u16, max: u16) -> f32 {
 ///
 /// When `enable_focus_and_zoom_correlation` is set, focus is read from the script
 /// channel instead of the dedicated focus channel. Each axis is `None` when its
-/// channel is unmapped.
+/// channel is unmapped, and focus and zoom are `None` for a fixed-focus lens.
 pub(crate) fn actuators_state_from_servo(
     actuators: &CameraActuators,
     servo_output_raw: &SERVO_OUTPUT_RAW_DATA,
 ) -> api::ActuatorsState {
-    let focus = {
+    let motorized = actuators.parameters.has_motorized_lens();
+
+    let focus = motorized.then(|| {
         let (channel, min, max) = if actuators.parameters.enable_focus_and_zoom_correlation {
             (
                 actuators.parameters.script_channel,
@@ -636,16 +644,16 @@ pub(crate) fn actuators_state_from_servo(
 
         get_output_raw_from_channel(servo_output_raw, channel)
             .map(|value| percentage_within_range(value, min, max))
-    };
+    });
 
-    let zoom = {
+    let zoom = motorized.then(|| {
         let channel = actuators.parameters.zoom_channel;
         let min = actuators.parameters.zoom_channel_min;
         let max = actuators.parameters.zoom_channel_max;
 
         get_output_raw_from_channel(servo_output_raw, channel)
             .map(|value| percentage_within_range(value, min, max))
-    };
+    });
 
     let tilt = {
         let channel = actuators.parameters.tilt_channel;
@@ -656,5 +664,9 @@ pub(crate) fn actuators_state_from_servo(
             .map(|value| percentage_within_range(value, min, max))
     };
 
-    api::ActuatorsState { focus, zoom, tilt }
+    api::ActuatorsState {
+        focus: focus.flatten(),
+        zoom: zoom.flatten(),
+        tilt,
+    }
 }
