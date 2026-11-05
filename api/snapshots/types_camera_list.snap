@@ -14,6 +14,7 @@ export type Stream = {
     stream_endpoints: Array<string>,
     state: StreamStatusState,
     error: string | null,
+    firmware_version: string,
 };
 
 export type StreamStatusState = "running" | "idle" | "stopped" | "unknown";
