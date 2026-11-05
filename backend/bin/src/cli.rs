@@ -81,6 +81,10 @@ pub struct Args {
     /// Accept any ONVIF device named "hd" without checking hardware ID.
     #[arg(long, value_parser = expand::<bool>)]
     mcm_skip_hardware_check: bool,
+
+    /// Sets the camera firmware server URL: the directory serving `index.json`.
+    #[arg(long, env = "FIRMWARE_SERVER_URL")]
+    firmware_server_url: Option<String>,
 }
 
 fn expand<T: std::str::FromStr>(s: &str) -> Result<T, String>
@@ -203,6 +207,18 @@ pub fn default_api_version() -> u8 {
 #[instrument(level = "debug")]
 pub fn mcm_skip_hardware_check() -> bool {
     args().mcm_skip_hardware_check
+}
+
+#[instrument(level = "debug")]
+pub fn firmware_server_url() -> Option<url::Url> {
+    // An unusable URL only disables firmware updates, it must not stop the extension.
+    let url = args().firmware_server_url.as_deref()?.trim();
+    if url.is_empty() {
+        return None;
+    }
+    url.parse()
+        .inspect_err(|error| error!("Ignoring invalid firmware server URL {url:?}: {error}"))
+        .ok()
 }
 
 #[instrument(level = "debug")]
