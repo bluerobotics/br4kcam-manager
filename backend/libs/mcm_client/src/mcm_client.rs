@@ -71,6 +71,19 @@ impl MCMClient {
         web_client::get(&self.address, "v4l", (), ()).await
     }
 
+    /// MCM lists every encode it can stream for its fake sources, so H265 there means it
+    /// can stream H265 from the camera too.
+    #[instrument(level = "debug", skip(self))]
+    pub async fn supports_h265(&self) -> Result<bool> {
+        Ok(self.get_video_sources().await?.iter().any(|source| {
+            source.name.starts_with("Fake source")
+                && source
+                    .formats
+                    .iter()
+                    .any(|format| format.encode == VideoEncodeType::H265)
+        }))
+    }
+
     #[instrument(level = "debug", skip(self))]
     pub async fn get_br4kcam_video_sources(&self) -> Result<Vec<ApiVideoSource>> {
         let sources = self
