@@ -119,7 +119,8 @@ jobs:
           version: ${{ github.ref_name }}
 
       - name: Build and Publish Extension in BlueOS Cloud
-        if: ${{ steps.semver.outcome  == 'success' }}
+        # blueos-cloud-action only accepts X.Y.Z, so prerelease tags (e.g. 0.5.0-beta.1) are skipped
+        if: ${{ steps.semver.outcome == 'success' && !contains(github.ref_name, '-') }}
         uses: bluerobotics/blueos-cloud-action@0.0.3
         with:
           BCLOUD_PAT: ${{ secrets.BCLOUD_PAT }}
