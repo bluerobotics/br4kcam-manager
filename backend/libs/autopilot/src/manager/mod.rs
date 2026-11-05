@@ -329,7 +329,7 @@ impl Manager {
     /// Carry out `plan` for the camera. Returns `true` if the autopilot must be rebooted
     /// before [`Self::finalize_config_after_reboot`].
     async fn execute(camera_uuid: &Uuid, plan: plan::ApplyPlan) -> Result<bool> {
-        for write in &plan.writes {
+        for write in plan.writes.iter().chain(&plan.releases) {
             Self::write_param(write).await?;
         }
 
@@ -348,8 +348,11 @@ impl Manager {
             actuators.furthest_points = plan.next.furthest_points.clone();
             manager.autopilot_scripts_file.clone()
         };
-        if let plan::ScriptAction::Write(contents) = &plan.script {
-            Self::write_script_file(&path, contents).await?;
+        match &plan.script {
+            // A lens change can still change what the status expects.
+            plan::ScriptAction::Keep => crate::health::refresh_lua_script_status().await,
+            plan::ScriptAction::Write(contents) => Self::write_script_file(&path, contents).await?,
+            plan::ScriptAction::Delete => Self::delete_script_file(&path).await?,
         }
 
         if plan.reboot {
@@ -439,16 +442,16 @@ impl Manager {
     /// the script runs. Caller must hold [`CONFIG_APPLY`].
     #[instrument(level = "debug")]
     pub async fn finalize_config_after_reboot(camera_uuid: &Uuid) -> Result<()> {
-        let parameters = {
-            let manager = MANAGER.get().context("Not available")?.read().await;
-            manager
-                .settings
-                .actuators
-                .get(camera_uuid)
-                .map(|actuators| actuators.parameters.clone())
-        };
+        // The script serves this camera, or another motorized camera it was handed to when
+        // this one turned fixed-focus. Unmatched, a motorized camera keeps its own.
+        let snapshot = plan::Snapshot::capture().await?;
+        let parameters = plan::script_camera(&snapshot, *camera_uuid)
+            .and_then(|uuid| snapshot.saved.get(&uuid))
+            .or_else(|| snapshot.saved.get(camera_uuid))
+            .map(|actuators| &actuators.parameters)
+            .filter(|parameters| parameters.has_motorized_lens());
         if let Some(parameters) = parameters {
-            for write in script::param_writes(&parameters, &parameters, true) {
+            for write in script::param_writes(parameters, parameters, true) {
                 Self::write_param(&write).await?;
             }
         }
@@ -466,7 +469,7 @@ impl Manager {
     #[instrument(level = "debug")]
     pub async fn forget_config(camera_uuid: &Uuid) -> Result<bool> {
         let snapshot = plan::Snapshot::capture().await?;
-        let Some(writes) = plan::plan_forget(&snapshot, *camera_uuid) else {
+        let Some((writes, script)) = plan::plan_forget(&snapshot, *camera_uuid)? else {
             return Ok(false);
         };
 
@@ -488,10 +491,18 @@ impl Manager {
             .shift_remove(camera_uuid);
         Self::save_actuators_settings().await?;
         info!(%camera_uuid, "Forgot actuators configuration for camera");
+        match &script {
+            plan::ScriptAction::Keep => crate::health::refresh_lua_script_status().await,
+            plan::ScriptAction::Write(contents) => {
+                Self::write_script_file(&snapshot.script_path, contents).await?
+            }
+            plan::ScriptAction::Delete => Self::delete_script_file(&snapshot.script_path).await?,
+        }
         owned_parameters::rebuild().await;
         owned_parameters::reevaluate_after_apply().await;
 
-        let reboot = !writes.is_empty() || reboot_pending();
+        // The running script only changes once the autopilot reboots.
+        let reboot = !writes.is_empty() || script != plan::ScriptAction::Keep || reboot_pending();
         if reboot {
             set_reboot_pending(true);
         }
