@@ -31,6 +31,8 @@ const MCM_MUTATION_TIMEOUT: Duration = Duration::from_secs(60);
 const MCM_FAILURES_TO_DOWN: u32 = 3;
 // MCM self-heals with backoff capped at 60s; each recreate costs an MCM settings write.
 const STREAM_FAILURES_TO_RECREATE: u32 = 60;
+/// First camera firmware major version that encodes H265 well.
+const MIN_H265_FIRMWARE: u32 = 16;
 
 static MANAGER: OnceCell<RwLock<Manager>> = OnceCell::new();
 static CAMERAS_TX: OnceCell<broadcast::Sender<()>> = OnceCell::new();
@@ -60,6 +62,8 @@ pub struct McmHealthSnapshot {
 
 #[derive(Debug)]
 struct Manager {
+    address: SocketAddr,
+    skip_hardware_check: bool,
     cameras: Cameras,
     auth_failures: HashMap<Uuid, String>,
     stream_failures: HashMap<Uuid, String>,
@@ -103,6 +107,8 @@ pub struct Stream {
 pub async fn init(mcm_address: SocketAddr, skip_hardware_check: bool) {
     if let Some(manager) = MANAGER.get() {
         let mut lock = manager.write().await;
+        lock.address = mcm_address;
+        lock.skip_hardware_check = skip_hardware_check;
         lock._authentication_task_handler.abort();
         lock._start_br4kcams_task_handler.abort();
         lock._authentication_task_handler =
@@ -126,6 +132,8 @@ pub async fn init(mcm_address: SocketAddr, skip_hardware_check: bool) {
 
     MANAGER.get_or_init(|| {
         RwLock::new(Manager {
+            address: mcm_address,
+            skip_hardware_check,
             cameras,
             auth_failures: HashMap::new(),
             stream_failures: HashMap::new(),
@@ -564,6 +572,58 @@ pub async fn remove_camera(uuid: &Uuid) -> Result<Camera> {
     notify_cameras();
 
     Ok(camera)
+}
+
+async fn connect() -> Result<MCMClient> {
+    let (address, skip_hardware_check) = {
+        let manager = MANAGER
+            .get()
+            .context("MCM client not initialized")?
+            .read()
+            .await;
+        (manager.address, manager.skip_hardware_check)
+    };
+    MCMClient::try_new(&address, skip_hardware_check).await
+}
+
+async fn camera_stream(mcm: &MCMClient, camera_uuid: &Uuid) -> Result<Stream> {
+    let hostname = camera_address(camera_uuid)
+        .await
+        .context("Unknown camera")?
+        .to_string();
+    mcm.get_br4kcam_streams()
+        .await?
+        .into_iter()
+        .find(|stream| stream.source_endpoint.host_str() == Some(hostname.as_str()))
+        .context("Camera has no MCM stream yet")
+}
+
+/// Major version from firmware strings like `18.010.U35.5_0054_V16(260305)`.
+fn firmware_major(firmware_version: &str) -> Option<u32> {
+    let (_, tail) = firmware_version.rsplit_once("_V")?;
+    tail.split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Why H265 can't be used with this camera, or `None` when both MCM and the camera support it.
+#[instrument(level = "debug")]
+pub async fn h265_unsupported_reason(camera_uuid: &Uuid) -> Result<Option<String>> {
+    let mcm = connect().await?;
+    if !mcm.supports_h265().await? {
+        return Ok(Some(
+            "MAVLink Camera Manager is too old to stream H.265".to_string(),
+        ));
+    }
+
+    let firmware_version = camera_stream(&mcm, camera_uuid).await?.firmware_version;
+    match firmware_major(&firmware_version) {
+        Some(major) if major >= MIN_H265_FIRMWARE => Ok(None),
+        _ => Ok(Some(format!(
+            "Camera firmware {firmware_version} is older than V{MIN_H265_FIRMWARE}"
+        ))),
+    }
 }
 
 fn stream_needs_recreation(state: StreamStatusState) -> bool {
