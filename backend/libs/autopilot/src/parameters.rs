@@ -183,6 +183,9 @@ impl Parameter {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ActuatorsParameters {
+    // Lens
+    pub lens: api::LensType,
+
     // Camera parameters
     pub camera_id: api::CameraID,
 
@@ -223,6 +226,9 @@ pub struct ActuatorsParameters {
 impl Default for ActuatorsParameters {
     fn default() -> Self {
         Self {
+            // Lens
+            lens: api::LensType::Motorized,
+
             // Camera parameters
             camera_id: api::CameraID::CAM1,
 
@@ -262,10 +268,18 @@ impl Default for ActuatorsParameters {
     }
 }
 
+impl ActuatorsParameters {
+    /// True when the lens has focus and zoom servos, driven through the Lua script.
+    pub fn has_motorized_lens(&self) -> bool {
+        self.lens == api::LensType::Motorized
+    }
+}
+
 impl From<ActuatorsParametersConfig> for ActuatorsParameters {
     fn from(value: ActuatorsParametersConfig) -> Self {
         let default = Self::default();
         Self {
+            lens: value.lens.unwrap_or(default.lens),
             camera_id: value.camera_id.unwrap_or(default.camera_id),
             focus_channel: value.focus_channel.unwrap_or(default.focus_channel),
             focus_channel_min: value.focus_channel_min.unwrap_or(default.focus_channel_min),

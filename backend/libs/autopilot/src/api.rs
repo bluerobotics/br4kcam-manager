@@ -71,6 +71,9 @@ impl From<&CameraActuators> for ActuatorsConfig {
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone, TS)]
 pub struct ActuatorsParametersConfig {
+    // Lens
+    pub lens: Option<LensType>,
+
     // Camera parameters
     pub camera_id: Option<CameraID>,
 
@@ -111,6 +114,7 @@ pub struct ActuatorsParametersConfig {
 impl From<&ActuatorsParameters> for ActuatorsParametersConfig {
     fn from(value: &ActuatorsParameters) -> Self {
         Self {
+            lens: Some(value.lens),
             camera_id: Some(value.camera_id),
             focus_channel: Some(value.focus_channel),
             focus_channel_min: Some(value.focus_channel_min),
@@ -137,6 +141,15 @@ impl From<&ActuatorsParameters> for ActuatorsParametersConfig {
             tilt_mnt_pitch_max: Some(value.tilt_mnt_pitch_max),
         }
     }
+}
+
+/// Which actuators the camera's lens has. A fixed-focus lens has no focus or zoom servo,
+/// so only tilt is set up and the Lua script is not needed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum LensType {
+    #[default]
+    Motorized,
+    FixedFocus,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
