@@ -157,6 +157,14 @@ pub(crate) fn fail_camera_action(camera_uuid: Uuid, action: &CameraAction, error
         return;
     }
 
+    // Background checks for suggestion banners: a camera still booting is not news.
+    if matches!(
+        action,
+        CameraAction::GetFirmwareUpdates | CameraAction::GetH265Support
+    ) {
+        return;
+    }
+
     set_warning(camera_uuid, format!("Camera control failed: {error}"));
 }
 
