@@ -187,6 +187,7 @@ async fn authenticate_br4kcams(mcm_address: &SocketAddr, skip_hardware_check: bo
                 break;
             };
             report_success(mcm.address);
+            let br4kcams = drop_stale_identities(br4kcams).await;
 
             let known_cameras = cameras().await;
             let br4kcam_uuids: HashSet<Uuid> = br4kcams.iter().map(|camera| camera.uuid).collect();
@@ -636,6 +637,75 @@ pub async fn recreate_camera_stream(camera_uuid: &Uuid) -> Result<()> {
     })
     .await?;
     Ok(())
+}
+
+/// Whether two ONVIF UUIDs belong to the same physical camera. 4K Cam UUIDs carry the MAC in
+/// their first and last six bytes, while the middle changes with the camera firmware.
+pub fn same_camera(a: &Uuid, b: &Uuid) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a[..6] == b[..6] && a[10..] == b[10..]
+}
+
+/// UUID from a WS-Discovery `ProbeMatch` (`<EndpointReference>urn:uuid:…`).
+fn uuid_from_probe_match(text: &str) -> Option<Uuid> {
+    let start = text.find("urn:uuid:")? + "urn:uuid:".len();
+    text.get(start..start + 36)?.parse().ok()
+}
+
+/// The ONVIF UUID the camera at `ip` announces now, from a unicast WS-Discovery probe.
+async fn live_onvif_uuid(ip: Ipv4Addr) -> Option<Uuid> {
+    const PROBE: &str = r#"<?xml version="1.0" encoding="UTF-8"?><e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope" xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery" xmlns:dn="http://www.onvif.org/ver10/network/wsdl"><e:Header><w:MessageID>uuid:4b0c1a2e-0000-4000-8000-000000000001</w:MessageID><w:To e:mustUnderstand="true">urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To><w:Action e:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header><e:Body><d:Probe><d:Types>dn:NetworkVideoTransmitter</d:Types></d:Probe></e:Body></e:Envelope>"#;
+
+    let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    socket.send_to(PROBE.as_bytes(), (ip, 3702)).await.ok()?;
+    let mut buffer = vec![0; 16 * 1024];
+    let (len, _) = tokio::time::timeout(Duration::from_secs(1), socket.recv_from(&mut buffer))
+        .await
+        .ok()?
+        .ok()?;
+    uuid_from_probe_match(&String::from_utf8_lossy(&buffer[..len]))
+}
+
+/// MCM keeps every ONVIF UUID it ever saw, and a camera announces a new one after a firmware
+/// change. When one camera is listed more than once, keep only the UUID it announces now
+/// (all of them if it does not answer).
+async fn drop_stale_identities(cameras: Vec<Camera>) -> Vec<Camera> {
+    let duplicated = |camera: &Camera| {
+        cameras
+            .iter()
+            .any(|other| other.uuid != camera.uuid && same_camera(&other.uuid, &camera.uuid))
+    };
+    // Each address once and all at the same time, so cameras that stopped answering cost
+    // discovery one probe timeout in total, not one each.
+    let addresses: HashSet<Ipv4Addr> = cameras
+        .iter()
+        .filter(|camera| duplicated(camera))
+        .map(|camera| camera.hostname)
+        .collect();
+    let mut probes = tokio::task::JoinSet::new();
+    for address in addresses {
+        probes.spawn(async move { (address, live_onvif_uuid(address).await) });
+    }
+    let live: HashMap<Ipv4Addr, Uuid> = probes
+        .join_all()
+        .await
+        .into_iter()
+        .filter_map(|(address, uuid)| Some((address, uuid?)))
+        .collect();
+
+    let (kept, stale): (Vec<Camera>, Vec<Camera>) = cameras.iter().cloned().partition(|camera| {
+        !duplicated(camera)
+            || live
+                .get(&camera.hostname)
+                .is_none_or(|live| *live == camera.uuid)
+    });
+    for camera in stale {
+        debug!(
+            "Ignoring stale ONVIF identity {} of {}",
+            camera.uuid, camera.hostname
+        );
+    }
+    kept
 }
 
 fn stream_needs_recreation(state: StreamStatusState) -> bool {
