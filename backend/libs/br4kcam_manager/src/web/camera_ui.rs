@@ -483,6 +483,7 @@ fn loading_message_for_camera_action(action: &CameraAction) -> Option<&'static s
     match action {
         CameraAction::Restart => Some("Rebooting camera…"),
         CameraAction::SetRecommendedCameraSettings => Some("Applying recommended camera settings…"),
+        CameraAction::SetH265 => Some("Switching to H.265…"),
         _ => None,
     }
 }
@@ -527,6 +528,7 @@ fn camera_action_label(action: &CameraAction) -> &'static str {
     match action {
         CameraAction::Restart => "Failed to reboot camera",
         CameraAction::SetRecommendedCameraSettings => "Failed to apply recommended camera settings",
+        CameraAction::SetH265 => "Failed to switch to H.265",
         _ => "Camera control failed",
     }
 }
