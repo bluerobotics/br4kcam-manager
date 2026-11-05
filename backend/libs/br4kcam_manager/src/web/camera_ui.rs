@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use autopilot::api::{Action as AutopilotAction, ActuatorsConfig};
+use autopilot::api::{Action as AutopilotAction, ActuatorsConfig, LensType};
 use br4kcam_api::{
     CameraConnectivity, CameraUiState, OnePushAwbStatus, SetupProgress, SetupResult, UiDismissField,
 };
@@ -168,7 +168,7 @@ pub(crate) fn fail_autopilot_action(camera_uuid: Uuid, action: &AutopilotAction,
             camera_uuid,
             SetupResult {
                 changes: Vec::new(),
-                forced: matches!(action, AutopilotAction::ForceResetActuatorsConfig),
+                forced: matches!(action, AutopilotAction::ForceResetActuatorsConfig(_)),
                 error: Some(error.to_string()),
             },
         );
@@ -490,9 +490,8 @@ fn loading_message_for_camera_action(action: &CameraAction) -> Option<&'static s
 fn loading_message_for_autopilot_action(action: &AutopilotAction) -> Option<&'static str> {
     match action {
         AutopilotAction::ExportLuaScript => Some("Updating Lua script…"),
-        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig => {
-            Some("Applying default hardware setup…")
-        }
+        AutopilotAction::ResetActuatorsConfig(_)
+        | AutopilotAction::ForceResetActuatorsConfig(_) => Some("Applying default hardware setup…"),
         AutopilotAction::SetActuatorsConfig(config) if is_full_hardware_setup(config) => {
             Some("Applying custom hardware setup…")
         }
@@ -504,7 +503,7 @@ fn loading_message_for_autopilot_action(action: &AutopilotAction) -> Option<&'st
 fn is_default_setup_action(action: &AutopilotAction) -> bool {
     matches!(
         action,
-        AutopilotAction::ResetActuatorsConfig | AutopilotAction::ForceResetActuatorsConfig
+        AutopilotAction::ResetActuatorsConfig(_) | AutopilotAction::ForceResetActuatorsConfig(_)
     )
 }
 
@@ -512,10 +511,16 @@ fn is_full_hardware_setup(config: &ActuatorsConfig) -> bool {
     let Some(parameters) = &config.parameters else {
         return false;
     };
-    parameters.focus_channel.is_some()
-        && parameters.zoom_channel.is_some()
-        && parameters.tilt_channel.is_some()
-        && parameters.script_channel.is_some()
+    let lens_channels_set = match parameters.lens.unwrap_or_default() {
+        LensType::Motorized => {
+            parameters.focus_channel.is_some()
+                && parameters.zoom_channel.is_some()
+                && parameters.script_channel.is_some()
+        }
+        // A fixed-focus lens only has tilt.
+        LensType::FixedFocus => true,
+    };
+    lens_channels_set && parameters.tilt_channel.is_some()
 }
 
 fn camera_action_label(action: &CameraAction) -> &'static str {
@@ -529,7 +534,7 @@ fn camera_action_label(action: &CameraAction) -> &'static str {
 fn autopilot_action_label(action: &AutopilotAction) -> &'static str {
     match action {
         AutopilotAction::ExportLuaScript => "Failed to update Lua script",
-        AutopilotAction::ResetActuatorsConfig => "Failed to apply default hardware setup",
+        AutopilotAction::ResetActuatorsConfig(_) => "Failed to apply default hardware setup",
         AutopilotAction::SetActuatorsConfig(_) => "Error saving hardware setup",
         _ => "Autopilot control failed",
     }
@@ -615,11 +620,15 @@ mod tests {
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn default_setup_result_replaces_loading_and_is_dismissable() {
         let camera_uuid = Uuid::from_u128(0x5555_6666_7777_8888);
-        start_autopilot_action(camera_uuid, &AutopilotAction::ResetActuatorsConfig);
+        start_autopilot_action(camera_uuid, &AutopilotAction::ResetActuatorsConfig(None));
         set_setup_progress(camera_uuid, 2, 4, "Applying");
         assert_eq!(get(camera_uuid).setup_progress.unwrap().step, 2);
 
-        fail_autopilot_action(camera_uuid, &AutopilotAction::ResetActuatorsConfig, "boom");
+        fail_autopilot_action(
+            camera_uuid,
+            &AutopilotAction::ResetActuatorsConfig(None),
+            "boom",
+        );
         let state = get(camera_uuid);
         assert!(!state.loading);
         assert!(state.setup_progress.is_none());

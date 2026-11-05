@@ -27,14 +27,23 @@ pub enum Action {
     GetActuatorsConfig,
     #[serde(rename = "setActuatorsConfig")]
     SetActuatorsConfig(ActuatorsConfig),
+    /// Applies the default setup for the given lens, or for the saved lens when omitted.
     #[serde(rename = "resetActuatorsConfig")]
-    ResetActuatorsConfig,
+    ResetActuatorsConfig(Option<LensType>),
     #[serde(rename = "forceResetActuatorsConfig")]
-    ForceResetActuatorsConfig,
-    /// Lists the settings a non-forced default setup would change, without writing anything.
-    /// An empty list means that apply will not reboot the autopilot.
+    ForceResetActuatorsConfig(Option<LensType>),
+    /// Lists the settings a non-forced default setup for the given lens would change, and the
+    /// parameters it releases marked `(released)`, without writing anything. An empty list
+    /// means that apply will not reboot the autopilot.
     #[serde(rename = "previewResetActuatorsConfig")]
-    PreviewResetActuatorsConfig,
+    PreviewResetActuatorsConfig(Option<LensType>),
+    /// What a non-forced default setup for the given lens would change, as a
+    /// [`SetupPreview`], without writing anything.
+    #[serde(rename = "previewDefaultSetup")]
+    PreviewDefaultSetup(Option<LensType>),
+    /// What `setActuatorsConfig` with this config would change, without writing anything.
+    #[serde(rename = "previewSetActuatorsConfig")]
+    PreviewSetActuatorsConfig(ActuatorsConfig),
     #[serde(rename = "forgetActuatorsConfig")]
     ForgetActuatorsConfig,
     /// Saves the autopilot's current value of each named parameter into the saved setup.
@@ -66,6 +75,29 @@ impl From<&CameraActuators> for ActuatorsConfig {
             closest_points: Some(value.closest_points.clone()),
             furthest_points: Some(value.furthest_points.clone()),
         }
+    }
+}
+
+/// What applying a hardware setup would change.
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone, TS)]
+pub struct SetupPreview {
+    /// Saved settings that change, as `name: old → new`.
+    pub changes: Vec<String>,
+    /// What the camera wrote and the setup no longer uses, released as `name: old → new`.
+    pub released: Vec<String>,
+}
+
+impl SetupPreview {
+    /// The changes, then the releases marked `(released)`.
+    pub fn into_lines(self) -> Vec<String> {
+        self.changes
+            .into_iter()
+            .chain(
+                self.released
+                    .into_iter()
+                    .map(|line| format!("{line} (released)")),
+            )
+            .collect()
     }
 }
 

@@ -293,8 +293,8 @@ impl Manager {
     /// Writes every default. The channels and camera id the camera leaves are released, and
     /// the saved setup is kept when the reset fails, as in [`Self::update_config`].
     #[instrument(level = "debug")]
-    pub async fn reset_config(camera_uuid: &Uuid) -> Result<bool> {
-        let config = api::ActuatorsConfig::from(&CameraActuators::default());
+    pub async fn reset_config(camera_uuid: &Uuid, lens: api::LensType) -> Result<bool> {
+        let config = api::ActuatorsConfig::from(&CameraActuators::default_for(lens));
         Self::apply(camera_uuid, &config, true).await
     }
 
