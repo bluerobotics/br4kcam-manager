@@ -170,7 +170,16 @@ export type CameraControl = {
     "action": "getH265Support"
 } | {
     "action": "setH265"
+} | {
+    "action": "getFirmwareUpdates"
+} | {
+    "action": "updateFirmware",
+    "json": FirmwareUpdate
 });
+
+export type FirmwareUpdate = {
+    version: string,
+};
 
 export type VideoChannelValue = 0 /* MainStream */ | 1 /* AuxiliaryStream */ | 2 /* ThirdStream */;
 
