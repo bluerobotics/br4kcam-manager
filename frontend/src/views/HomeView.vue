@@ -123,6 +123,10 @@
         :selected-camera-uuid="selectedCameraUUID"
         :disabled="cameraBackedControlsDisabled"
       />
+      <FirmwareUpdate
+        :selected-camera-uuid="selectedCameraUUID"
+        :disabled="cameraBackedControlsDisabled"
+      />
     </div>
     <div
       class="transition-all duration-300 ease-in-out"
@@ -244,6 +248,7 @@ import {
 import ImageTab from '@/components/ImageTab.vue'
 import StreamsTab from '@/components/StreamsTab.vue'
 import H265Suggestion from '@/components/H265Suggestion.vue'
+import FirmwareUpdate from '@/components/FirmwareUpdate.vue'
 import AutopilotRestartDialog from '@/components/AutopilotRestartDialog.vue'
 import SystemStatusDialog from '@/components/SystemStatusDialog.vue'
 import WarningToast from '@/components/WarningToast.vue'
