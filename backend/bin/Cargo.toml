@@ -10,6 +10,7 @@ default-run = "br4kcam-manager"
 [dependencies]
 autopilot = { path="../libs/autopilot" }
 blueos_client = { path="../libs/blueos_client" }
+br4kcam_commands = { path="../libs/br4kcam_commands" }
 mcm_client = { path="../libs/mcm_client" }
 br4kcam_manager = { path="../libs/br4kcam_manager" }
 settings = { path="../libs/settings" }
@@ -17,11 +18,12 @@ web_client = { path="../libs/web_client" }
 
 anyhow = { workspace = true }
 chrono = { workspace = true }
-clap = { version = "4.5.42", features = ["derive"] }
+clap = { version = "4.5.42", features = ["derive", "env"] }
 once_cell = { workspace = true }
 shellexpand = "3.1.1"
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+url = { workspace = true }
 
 [build-dependencies]
 vergen-gix = { workspace = true }
