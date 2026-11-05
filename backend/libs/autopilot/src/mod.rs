@@ -97,6 +97,28 @@ pub async fn configured_cameras() -> Vec<Uuid> {
     }
 }
 
+/// Moves the saved setup of `old_uuid` to `new_uuid`, keeping its place, for a camera whose
+/// identity changed (its ONVIF UUID does with each firmware). Returns `false` when there is
+/// nothing to move or `new_uuid` already has a setup.
+pub async fn rename_camera(old_uuid: Uuid, new_uuid: Uuid) -> Result<bool> {
+    let _apply = manager::CONFIG_APPLY.lock().await;
+    {
+        let mut manager = MANAGER.get().context("Not available")?.write().await;
+        let actuators = &mut manager.settings.actuators;
+        if actuators.contains_key(&new_uuid) {
+            return Ok(false);
+        }
+        let Some((index, _, config)) = actuators.shift_remove_full(&old_uuid) else {
+            return Ok(false);
+        };
+        actuators.shift_insert(index, new_uuid, config);
+    }
+    manager::Manager::save_actuators_settings().await?;
+    manager::owned_parameters::rebuild().await;
+    manager::owned_parameters::reevaluate_after_apply().await;
+    Ok(true)
+}
+
 /// What [`reset_actuators_config`] did.
 pub struct ResetOutcome {
     /// Actuators configuration after the reset.
