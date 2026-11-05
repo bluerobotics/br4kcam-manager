@@ -44,6 +44,8 @@ async fn start_application(first_start: bool) -> Result<bool> {
 
     blueos_client::init(cli::blueos_address().await).await;
 
+    br4kcam_commands::firmware::init(cli::firmware_server_url());
+
     let autopilot_startup_task = tokio::spawn(async move {
         let mut endpoint_failures = 0u32;
         loop {
