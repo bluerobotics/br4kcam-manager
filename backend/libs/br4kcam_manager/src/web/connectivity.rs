@@ -421,6 +421,36 @@ pub(crate) fn has_pending_debounce() -> bool {
         .any(|entry| entry.pending.is_some())
 }
 
+/// A camera's ONVIF UUID changes with its firmware, so after a firmware update the same
+/// camera (same MAC) shows up under a new UUID: move its saved setup over to it.
+async fn adopt_renamed_cameras() {
+    let discovered = mcm_client::cameras().await;
+    let configured = autopilot::configured_cameras().await;
+    for new_uuid in discovered.keys().filter(|uuid| !configured.contains(uuid)) {
+        let Some(old_uuid) = configured.iter().find(|old_uuid| {
+            !discovered.contains_key(*old_uuid) && mcm_client::same_camera(old_uuid, new_uuid)
+        }) else {
+            continue;
+        };
+        match autopilot::rename_camera(*old_uuid, *new_uuid).await {
+            Ok(true) => {
+                info!(%old_uuid, %new_uuid, "Moved camera setup to its new identity");
+                let hostname = &discovered[new_uuid].hostname;
+                camera_ui::set_warning(
+                    *new_uuid,
+                    format!(
+                        "Camera {hostname} came back with a new identity after a firmware change. Its hardware setup was kept."
+                    ),
+                );
+                // Pages may already have loaded the new identity as an unconfigured camera.
+                camera_state::reconcile_snapshot(*new_uuid).await;
+            }
+            Ok(false) => {}
+            Err(error) => warn!(%old_uuid, %new_uuid, "Failed moving camera setup: {error:?}"),
+        }
+    }
+}
+
 async fn sync_mcm_camera_errors() {
     let discovered = mcm_client::cameras().await;
     let configured = autopilot::configured_cameras().await;
@@ -460,6 +490,7 @@ fn ensure_fan_in() {
                 }
                 _ = autopilot_rx.recv() => {}
                 _ = cameras_rx.recv() => {
+                    adopt_renamed_cameras().await;
                     sync_mcm_camera_errors().await;
                 }
             }
