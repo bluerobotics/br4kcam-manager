@@ -396,16 +396,40 @@ fn begin_reboot(camera_uuid: Uuid, message: &str) {
         entry.state.rebooting = true;
         entry.state.warning_toast = None;
         entry.state.error_dialog = None;
-        entry.reboot_timeout = Some(tokio::spawn(
-            async move {
-                tokio::time::sleep(REBOOT_GRACE).await;
-                end_reboot(camera_uuid);
-            }
-            .instrument(Span::current()),
-        ));
+        arm_reboot_timeout(entry, camera_uuid);
         entry.state.clone()
     };
     camera_state::emit_ui(camera_uuid, state);
+}
+
+/// Update the message of a running reboot overlay. Each update also restarts its timeout,
+/// so a long firmware update is not cut short while it keeps making progress.
+#[instrument(level = "debug")]
+pub(crate) fn set_reboot_progress(camera_uuid: Uuid, message: &str) {
+    let state = {
+        let mut lock = ui().lock().unwrap();
+        let Some(entry) = lock.get_mut(&camera_uuid) else {
+            return;
+        };
+        if !entry.state.rebooting {
+            return;
+        }
+        entry.state.loading_message = Some(message.to_string());
+        arm_reboot_timeout(entry, camera_uuid);
+        entry.state.clone()
+    };
+    camera_state::emit_ui(camera_uuid, state);
+}
+
+fn arm_reboot_timeout(entry: &mut Entry, camera_uuid: Uuid) {
+    clear_reboot_timeout(entry);
+    entry.reboot_timeout = Some(tokio::spawn(
+        async move {
+            tokio::time::sleep(REBOOT_GRACE).await;
+            end_reboot(camera_uuid);
+        }
+        .instrument(Span::current()),
+    ));
 }
 
 /// Clear reboot overlay once the camera is responsive again.
@@ -476,7 +500,10 @@ pub(crate) fn set_warning(camera_uuid: Uuid, message: String) {
 }
 
 fn is_reboot_camera_action(action: &CameraAction) -> bool {
-    matches!(action, CameraAction::Restart)
+    matches!(
+        action,
+        CameraAction::Restart | CameraAction::UpdateFirmware(_)
+    )
 }
 
 fn loading_message_for_camera_action(action: &CameraAction) -> Option<&'static str> {
@@ -484,6 +511,7 @@ fn loading_message_for_camera_action(action: &CameraAction) -> Option<&'static s
         CameraAction::Restart => Some("Rebooting camera…"),
         CameraAction::SetRecommendedCameraSettings => Some("Applying recommended camera settings…"),
         CameraAction::SetH265 => Some("Switching to H.265…"),
+        CameraAction::UpdateFirmware(_) => Some("Updating camera firmware…"),
         _ => None,
     }
 }
@@ -529,6 +557,7 @@ fn camera_action_label(action: &CameraAction) -> &'static str {
         CameraAction::Restart => "Failed to reboot camera",
         CameraAction::SetRecommendedCameraSettings => "Failed to apply recommended camera settings",
         CameraAction::SetH265 => "Failed to switch to H.265",
+        CameraAction::UpdateFirmware(_) => "Failed to update camera firmware",
         _ => "Camera control failed",
     }
 }
