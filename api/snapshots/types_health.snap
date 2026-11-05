@@ -23,7 +23,7 @@ export type ExpectedCamera = {
     last_hostname?: string,
 };
 
-export type LuaScriptStatus = "unknown" | "ok" | "missing" | "outdated" | "failing";
+export type LuaScriptStatus = "unknown" | "ok" | "missing" | "outdated" | "failing" | "not_needed";
 
 export type McmHealth = "unknown" | "online" | "down";
 

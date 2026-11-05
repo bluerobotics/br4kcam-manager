@@ -25,11 +25,20 @@ export type ActuatorsControl = {
     "action": "setActuatorsConfig",
     "json": ActuatorsConfig
 } | {
-    "action": "resetActuatorsConfig"
+    "action": "resetActuatorsConfig",
+    "json": LensType | null
 } | {
-    "action": "forceResetActuatorsConfig"
+    "action": "forceResetActuatorsConfig",
+    "json": LensType | null
 } | {
-    "action": "previewResetActuatorsConfig"
+    "action": "previewResetActuatorsConfig",
+    "json": LensType | null
+} | {
+    "action": "previewDefaultSetup",
+    "json": LensType | null
+} | {
+    "action": "previewSetActuatorsConfig",
+    "json": ActuatorsConfig
 } | {
     "action": "forgetActuatorsConfig"
 } | {
@@ -41,6 +50,7 @@ export type ActuatorsControl = {
 });
 
 export type ActuatorsParametersConfig = {
+    lens: LensType | null,
     camera_id: CameraID | null,
     focus_channel: ServoChannel | null,
     focus_channel_min: number | null,
@@ -81,6 +91,8 @@ export type FocusZoomPoint = {
 };
 
 export type FocusZoomPoints = Array<FocusZoomPoint>;
+
+export type LensType = "Motorized" | "FixedFocus";
 
 export type MountType = "Servo" | "BrushlessPWM";
 
