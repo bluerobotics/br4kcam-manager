@@ -19,3 +19,10 @@ export function newerFirmware(current: string, available: string[]): string | nu
   }
   return best
 }
+
+/** Whether two camera UUIDs are the same physical camera: 4K Cam ONVIF UUIDs carry the MAC in
+ * their first and last 12 hex digits, while the middle changes with the camera firmware. */
+export function sameCamera(a: string, b: string): boolean {
+  const [x, y] = [a, b].map((uuid) => uuid.replace(/-/g, '').toLowerCase())
+  return x.length === 32 && y.length === 32 && x.slice(0, 12) === y.slice(0, 12) && x.slice(20) === y.slice(20)
+}
