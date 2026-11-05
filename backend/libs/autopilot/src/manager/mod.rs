@@ -170,17 +170,14 @@ impl Manager {
     /// Send focus/zoom/tilt setpoints without waiting for SERVO (caller measures separately).
     ///
     /// Does not touch `MANAGER` — caller must validate the camera has actuators first.
-    // DO_MOUNT_CONTROL is deprecated upstream, but it is the command ArduPilot's servo mount
-    // backends honour on this firmware (verified on the DUT). GIMBAL_MANAGER_* is untested here.
-    #[allow(deprecated)]
+    // DO_MOUNT_CONTROL only reaches ArduPilot's primary mount, so tilt goes through
+    // DO_GIMBAL_MANAGER_PITCHYAW, which picks the mount by its gimbal device id.
     #[instrument(level = "debug", skip(parameters))]
     pub async fn apply_state_setpoints(
         new_state: &api::ActuatorsState,
         parameters: &ActuatorsParameters,
     ) -> Result<()> {
-        use ::mavlink::ardupilotmega::{
-            COMMAND_LONG_DATA, CameraZoomType, MavCmd, MavMountMode, SetFocusType,
-        };
+        use ::mavlink::ardupilotmega::{COMMAND_LONG_DATA, CameraZoomType, MavCmd, SetFocusType};
 
         if !parameters.has_motorized_lens()
             && (new_state.focus.is_some() || new_state.zoom.is_some())
@@ -204,14 +201,22 @@ impl Manager {
                 .send_command(COMMAND_LONG_DATA {
                     target_system: 1,
                     target_component: 1,
-                    command: MavCmd::MAV_CMD_DO_MOUNT_CONTROL,
+                    command: MavCmd::MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW,
                     confirmation: 0,
                     param1: pitch,
-                    param7: MavMountMode::MAV_MOUNT_MODE_MAVLINK_TARGETING as u8 as f32,
+                    // Yaw 0 with no flags (param5): the mount only tilts, and follows the vehicle.
+                    param2: 0.0,
+                    param3: f32::NAN,
+                    param4: f32::NAN,
+                    // Gimbal device id: 1 is MNT1, 2 is MNT2 (0 would be the primary mount).
+                    param7: match parameters.camera_id {
+                        api::CameraID::CAM1 => 1.0,
+                        api::CameraID::CAM2 => 2.0,
+                    },
                     ..Default::default()
                 })
                 .await
-                .context("Failed sending MAV_CMD_DO_MOUNT_CONTROL command")?;
+                .context("Failed sending MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW command")?;
         }
 
         if let Some(focus) = new_state.focus {
