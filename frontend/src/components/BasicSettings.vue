@@ -99,7 +99,7 @@
       @update:expanded="panelsOpen.actuators = $event"
     >
       <BlueSlider
-        v-if="actuatorsState"
+        v-if="actuatorsState && !savedLensIsFixedFocus"
         v-model="actuatorsState.focus"
         :disabled="actuatorControlsDisabled"
         name="focus"
@@ -119,7 +119,7 @@
         @update:model-value="updateActuatorsState('focus', $event as number)"
       />
       <BlueSlider
-        v-if="actuatorsState"
+        v-if="actuatorsState && !savedLensIsFixedFocus"
         v-model="actuatorsState.zoom"
         :disabled="actuatorControlsDisabled"
         name="zoom"
@@ -167,6 +167,7 @@
       >
         <div class="flex flex-col gap-[15px]">
           <BlueSwitch
+            v-if="!savedLensIsFixedFocus"
             v-model="currentFocusAndZoomParams.enable_focus_and_zoom_correlation"
             :disabled="actuatorControlsDisabled"
             name="focus-zoom-correlation"
@@ -188,21 +189,6 @@
               @update:model-value="requestAutopilotRestart(() => updateTiltStabilization($event as boolean))"
             />
           </BlueTooltip>
-          <!-- <BlueSlider
-            v-model="focusOffsetUI"
-            :disabled="isConfigured !== true || cameraControlsDisabled"
-            name="focus-offset"
-            label="Focus compensation"
-            :min="-10"
-            :max="10"
-            :step="1"
-            width="400px"
-            theme="dark"
-            value-weight="regular"
-            label-width="130px"
-            class="mt-6"
-            @update:model-value="onFocusOffsetChange($event ?? 0)"
-          /> -->
         </div>
       </BlueExpansiblePanel>
     </BlueExpansiblePanel>
@@ -264,379 +250,85 @@
         ref="hardwareSetupHighlight"
         class="absolute inset-0 pointer-events-none opacity-0 z-10 bg-white/20 rounded-lg blur-[1px]"
       />
-    <BlueExpansiblePanel
-      title="Hardware setup"
-      :expanded="panelsOpen.hardware"
-      body-class="px-13 pt-4 pb-4"
-      theme="dark"
-      @update:expanded="panelsOpen.hardware = $event"
-    >
-      <div>
-        <p class="mb-3">
-          Assign Navigator PWM output channels to your camera functions below. The recommended setup is:
-        </p>
-        <p class="mb-3">
-          Mount tilt limits can also be configured in
-          <a
-            :href="blueosCameraSetupUrl"
-            target="_blank"
-            rel="noopener"
-            class="underline"
-          >BlueOS camera setup</a>.
-        </p>
-        <ul class="list-disc pl-5 mb-4 text-base">
-          <li><b>Focus</b>: Connect the camera's Focus cable to Navigator's <b>PWM Channel 10</b></li>
-          <li><b>Zoom</b>: Connect the camera's Zoom cable to Navigator's <b>PWM Channel 11</b></li>
-          <li><b>Script</b>: Navigator's <b>PWM Channel 12</b> is used as an <i>input</i> used by the internal Lua script that enables Focus/Zoom correlation (no physical cable connects here)</li>
-          <li><b>Tilt</b>: Connect the camera's Tilt cable to Navigator's <b>PWM Channel 16</b></li>
-        </ul>
-        <p class="mb-3">
-          Click <b>Apply default hardware setup</b> to use the recommended configuration above, or click <b>Advanced setup</b> to customize your channel assignments and parameters.
-        </p>
-      </div>
-
-      <!-- Default Simple Setup -->
-      <div
-        v-if="!showAdvancedHardware"
-        class="px-3 pt-3"
+      <BlueExpansiblePanel
+        title="Hardware setup"
+        :expanded="panelsOpen.hardware"
+        body-class="px-13 pt-4 pb-4"
+        theme="dark"
+        @update:expanded="panelsOpen.hardware = $event"
       >
-        <p
-          v-if="hardwareSetupDisabledReason"
-          class="text-sm opacity-80 mb-3 text-right"
+        <!-- The group reads preSelected only when mounted, so it remounts to follow the lens -->
+        <BlueButtonGroup
+          :key="selectedLens"
+          label="Lens"
+          :disabled="hardwareSetupControlsDisabled"
+          :button-items="lensButtonItems"
+          theme="dark"
+          type="switch"
+        />
+        <div
+          v-if="lensChangeNotice"
+          class="mb-4 rounded-[6px] border border-[#FB8C0055] bg-[#FB8C0022] p-3 text-sm text-[#FFB74D]"
         >
-          {{ hardwareSetupDisabledReason }}
-        </p>
-        <div class="flex flex-row gap-3 mt-5 justify-end">
-          <BlueButton
-            :disabled="hardwareSetupControlsDisabled"
-            density="compact"
-            theme="dark"
-            @click="showAdvancedHardware = true"
-          >
-            Advanced setup
-          </BlueButton>
-          <BlueTooltip
-            text="Disabled while the vehicle is armed"
-            :disabled="!vehicleArmed"
-          >
-            <BlueButton
-              variant="filled"
-              density="compact"
-              :disabled="hardwareSetupControlsDisabled || vehicleArmed"
-              :loading="props.loading"
-              theme="dark"
-              @click="resetToRecommendedDefaults(false)"
-            >
-              Apply default hardware setup
-            </BlueButton>
-          </BlueTooltip>
+          {{ lensChangeNotice }}
         </div>
-      </div>
+        <div>
+          <p class="mb-3">
+            Assign Navigator PWM output channels to your camera functions below. The recommended setup is:
+          </p>
+          <p class="mb-3">
+            Mount tilt limits can also be configured in
+            <a
+              :href="blueosCameraSetupUrl"
+              target="_blank"
+              rel="noopener"
+              class="underline"
+            >BlueOS camera setup</a>.
+          </p>
+          <ul class="list-disc pl-5 mb-4 text-base">
+            <template v-if="!selectedLensIsFixedFocus">
+              <li><b>Focus</b>: Connect the camera's Focus cable to Navigator's <b>PWM Channel 10</b></li>
+              <li><b>Zoom</b>: Connect the camera's Zoom cable to Navigator's <b>PWM Channel 11</b></li>
+              <li><b>Script</b>: Navigator's <b>PWM Channel 12</b> is used as an <i>input</i> used by the internal Lua script that enables Focus/Zoom correlation (no physical cable connects here)</li>
+            </template>
+            <li><b>Tilt</b>: Connect the camera's Tilt cable to Navigator's <b>PWM Channel 16</b></li>
+          </ul>
+          <p
+            v-if="selectedLensIsFixedFocus"
+            class="mb-3"
+          >
+            A fixed-focus lens has no focus or zoom servo, so only tilt is set up and no autopilot script is needed.
+          </p>
+          <p class="mb-3">
+            Click <b>Apply default hardware setup</b> to use the recommended configuration above, or click <b>Advanced setup</b> to customize your channel assignments and parameters.
+          </p>
+        </div>
 
-      <!-- Advanced Setup -->
-      <div v-else>
-        <!-- Focus Group -->
-        <BlueExpansiblePanel
-          title="Focus"
-          expanded
-          body-class="px-13 pt-4 pb-4"
-          theme="dark"
+        <!-- Default Simple Setup -->
+        <div
+          v-if="!showAdvancedHardware"
+          class="px-3 pt-3"
         >
-          <BlueSelect
-            v-model="intendedFocusAndZoomParams.focus_channel"
-            :disabled="hardwareSetupControlsDisabled"
-            label="PWM Output Channel"
-            :items="availableServoChannelOptions"
-            :error-messages="channelErrors.focus_channel ? [channelErrors.focus_channel] : []"
-            theme="dark"
-            @update:model-value="handleChannelChanges('focus_channel', $event)"
-          />
-          <div class="flex flex-row gap-3">
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Min (µs)
-              <BlueInput
-                v-model="focusChannelMin"
-                name="focus-channel-min"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Trim (µs)
-              <BlueInput
-                v-model="focusChannelTrim"
-                name="focus-channel-trim"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Max (µs)
-              <BlueInput
-                v-model="focusChannelMax"
-                name="focus-channel-max"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-          </div>
-          <label class="flex min-w-0 flex-col gap-1 text-xs opacity-70">
-            Focus Margin Gain
-            <BlueInput
-              v-model="focusMarginGain"
-              name="focus-margin-gain"
-              :disabled="hardwareSetupControlsDisabled"
-              type="number"
-              width="100%"
-              theme="dark"
-            />
-          </label>
-        </BlueExpansiblePanel>
-
-        <!-- Zoom Group -->
-        <BlueExpansiblePanel
-          title="Zoom"
-          expanded
-          body-class="px-13 pt-4 pb-4"
-          theme="dark"
-        >
-          <BlueSelect
-            v-model="intendedFocusAndZoomParams.zoom_channel"
-            :disabled="hardwareSetupControlsDisabled"
-            label="PWM Output Channel"
-            :items="availableServoChannelOptions"
-            :error-messages="channelErrors.zoom_channel ? [channelErrors.zoom_channel] : []"
-            theme="dark"
-            @update:model-value="handleChannelChanges('zoom_channel', $event)"
-          />
-          <div class="flex flex-row gap-3">
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Min (µs)
-              <BlueInput
-                v-model="zoomChannelMin"
-                name="zoom-channel-min"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Trim (µs)
-              <BlueInput
-                v-model="zoomChannelTrim"
-                name="zoom-channel-trim"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Max (µs)
-              <BlueInput
-                v-model="zoomChannelMax"
-                name="zoom-channel-max"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-          </div>
-        </BlueExpansiblePanel>
-
-        <!-- Script Group -->
-        <BlueExpansiblePanel
-          title="Script"
-          expanded
-          body-class="px-13 pt-4 pb-4"
-          theme="dark"
-        >
-          <BlueSelect
-            v-model="intendedFocusAndZoomParams.script_channel"
-            :disabled="hardwareSetupControlsDisabled"
-            label="PWM Input Channel"
-            :items="availableServoChannelOptions"
-            :error-messages="channelErrors.script_channel ? [channelErrors.script_channel] : []"
-            theme="dark"
-            @update:model-value="handleChannelChanges('script_channel', $event)"
-          />
-          <div class="flex flex-row gap-3">
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Min (µs)
-              <BlueInput
-                v-model="scriptChannelMin"
-                name="script-channel-min"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Trim (µs)
-              <BlueInput
-                v-model="scriptChannelTrim"
-                name="script-channel-trim"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Max (µs)
-              <BlueInput
-                v-model="scriptChannelMax"
-                name="script-channel-max"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-          </div>
-          <div class="flex flex-col gap-[15px]">
-            <BlueSelect
-              v-model="intendedFocusAndZoomParams.script_function"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Script Function"
-              :items="scriptFunctionOptions"
-              theme="dark"
-            />
-            <BlueSelect
-              v-model="intendedFocusAndZoomParams.camera_id"
-              :disabled="props.disabled || true"
-              label="Camera ID"
-              :items="cameraIdOptions"
-              theme="dark"
-            />
-            <BlueSwitch
-              v-model="intendedFocusAndZoomParams.enable_focus_and_zoom_correlation"
-              :disabled="hardwareSetupControlsDisabled"
-              name="focus-zoom-correlation"
-              label="Focus/Zoom Correlation"
-              theme="dark"
-            />
-          </div>
-        </BlueExpansiblePanel>
-
-        <!-- Tilt Group -->
-        <BlueExpansiblePanel
-          title="Tilt"
-          expanded
-          body-class="px-13 pt-4 pb-4"
-          theme="dark"
-        >
-          <BlueSelect
-            v-model="intendedFocusAndZoomParams.tilt_channel"
-            :disabled="hardwareSetupControlsDisabled"
-            label="PWM Output Channel"
-            :items="availableServoChannelOptions"
-            :error-messages="channelErrors.tilt_channel ? [channelErrors.tilt_channel] : []"
-            theme="dark"
-            @update:model-value="handleChannelChanges('tilt_channel', $event)"
-          />
-          <div class="flex flex-row gap-3">
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Min (µs)
-              <BlueInput
-                v-model="tiltChannelMin"
-                name="tilt-channel-min"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Trim (µs)
-              <BlueInput
-                v-model="tiltChannelTrim"
-                name="tilt-channel-trim"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Max (µs)
-              <BlueInput
-                v-model="tiltChannelMax"
-                name="tilt-channel-max"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-          </div>
-          <div class="flex flex-row gap-3">
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Pitch Min (°)
-              <BlueInput
-                v-model="tiltMntPitchMin"
-                name="tilt-mnt-pitch-min"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-            <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
-              Pitch Max (°)
-              <BlueInput
-                v-model="tiltMntPitchMax"
-                name="tilt-mnt-pitch-max"
-                :disabled="hardwareSetupControlsDisabled"
-                type="number"
-                width="100%"
-                theme="dark"
-              />
-            </label>
-          </div>
-          <div class="flex flex-col gap-[15px]">
-            <BlueSwitch
-              v-model="intendedFocusAndZoomParams.tilt_channel_reversed"
-              :disabled="hardwareSetupControlsDisabled"
-              name="tilt-channel-reversed"
-              label="Reverse Direction"
-              theme="dark"
-            />
-            <BlueSelect
-              v-model="intendedFocusAndZoomParams.tilt_mnt_type"
-              :disabled="hardwareSetupControlsDisabled"
-              label="Mount Type"
-              :items="mountTypeOptions"
-              theme="dark"
-            />
-          </div>
-        </BlueExpansiblePanel>
-
-        <!-- Action Buttons -->
-        <div class="flex flex-col items-end gap-3 mt-5">
           <p
             v-if="hardwareSetupDisabledReason"
-            class="text-sm opacity-80 mb-0"
+            class="text-sm opacity-80 mb-3 text-right"
           >
             {{ hardwareSetupDisabledReason }}
           </p>
-          <div class="flex flex-row gap-3 justify-end">
+          <p
+            v-if="setupPreviewError"
+            class="text-sm text-[#FF8A80] mb-3 text-right"
+          >
+            {{ setupPreviewError }}
+          </p>
+          <div class="flex flex-row gap-3 mt-5 justify-end">
             <BlueButton
               :disabled="hardwareSetupControlsDisabled"
               density="compact"
               theme="dark"
-              @click="showAdvancedHardware = false"
+              @click="showAdvancedHardware = true"
             >
-              Back to simple
+              Advanced setup
             </BlueButton>
             <BlueTooltip
               text="Disabled while the vehicle is armed"
@@ -645,23 +337,356 @@
               <BlueButton
                 variant="filled"
                 density="compact"
-                :disabled="hasChannelErrors || hardwareSetupControlsDisabled || vehicleArmed"
+                :disabled="hardwareSetupControlsDisabled || vehicleArmed"
                 :loading="props.loading"
                 theme="dark"
-                @click="requestAutopilotRestart(saveHardwareSetup)"
+                @click="resetToRecommendedDefaults(false)"
               >
-                Apply custom hardware setup
+                Apply default hardware setup
               </BlueButton>
             </BlueTooltip>
           </div>
         </div>
-      </div>
-    </BlueExpansiblePanel>
+
+        <!-- Advanced Setup -->
+        <div v-else>
+          <!-- Focus, Zoom and Script Groups: a fixed-focus lens has none of them -->
+          <template v-if="!selectedLensIsFixedFocus">
+            <!-- Focus Group -->
+            <BlueExpansiblePanel
+              title="Focus"
+              expanded
+              body-class="px-13 pt-4 pb-4"
+              theme="dark"
+            >
+              <BlueSelect
+                v-model="intendedFocusAndZoomParams.focus_channel"
+                :disabled="hardwareSetupControlsDisabled"
+                label="PWM Output Channel"
+                :items="availableServoChannelOptions"
+                :error-messages="channelErrors.focus_channel ? [channelErrors.focus_channel] : []"
+                theme="dark"
+                @update:model-value="handleChannelChanges('focus_channel', $event)"
+              />
+              <div class="flex flex-row gap-3">
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Min (µs)
+                  <BlueInput
+                    v-model="focusChannelMin"
+                    name="focus-channel-min"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Trim (µs)
+                  <BlueInput
+                    v-model="focusChannelTrim"
+                    name="focus-channel-trim"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Max (µs)
+                  <BlueInput
+                    v-model="focusChannelMax"
+                    name="focus-channel-max"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+              </div>
+              <label class="flex min-w-0 flex-col gap-1 text-xs opacity-70">
+                Focus Margin Gain
+                <BlueInput
+                  v-model="focusMarginGain"
+                  name="focus-margin-gain"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+            </BlueExpansiblePanel>
+
+            <!-- Zoom Group -->
+            <BlueExpansiblePanel
+              title="Zoom"
+              expanded
+              body-class="px-13 pt-4 pb-4"
+              theme="dark"
+            >
+              <BlueSelect
+                v-model="intendedFocusAndZoomParams.zoom_channel"
+                :disabled="hardwareSetupControlsDisabled"
+                label="PWM Output Channel"
+                :items="availableServoChannelOptions"
+                :error-messages="channelErrors.zoom_channel ? [channelErrors.zoom_channel] : []"
+                theme="dark"
+                @update:model-value="handleChannelChanges('zoom_channel', $event)"
+              />
+              <div class="flex flex-row gap-3">
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Min (µs)
+                  <BlueInput
+                    v-model="zoomChannelMin"
+                    name="zoom-channel-min"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Trim (µs)
+                  <BlueInput
+                    v-model="zoomChannelTrim"
+                    name="zoom-channel-trim"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Max (µs)
+                  <BlueInput
+                    v-model="zoomChannelMax"
+                    name="zoom-channel-max"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+              </div>
+            </BlueExpansiblePanel>
+
+            <!-- Script Group -->
+            <BlueExpansiblePanel
+              title="Script"
+              expanded
+              body-class="px-13 pt-4 pb-4"
+              theme="dark"
+            >
+              <BlueSelect
+                v-model="intendedFocusAndZoomParams.script_channel"
+                :disabled="hardwareSetupControlsDisabled"
+                label="PWM Input Channel"
+                :items="availableServoChannelOptions"
+                :error-messages="channelErrors.script_channel ? [channelErrors.script_channel] : []"
+                theme="dark"
+                @update:model-value="handleChannelChanges('script_channel', $event)"
+              />
+              <div class="flex flex-row gap-3">
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Min (µs)
+                  <BlueInput
+                    v-model="scriptChannelMin"
+                    name="script-channel-min"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Trim (µs)
+                  <BlueInput
+                    v-model="scriptChannelTrim"
+                    name="script-channel-trim"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+                <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                  Max (µs)
+                  <BlueInput
+                    v-model="scriptChannelMax"
+                    name="script-channel-max"
+                    :disabled="hardwareSetupControlsDisabled"
+                    type="number"
+                    width="100%"
+                    theme="dark"
+                  />
+                </label>
+              </div>
+              <div class="flex flex-col gap-[15px]">
+                <BlueSelect
+                  v-model="intendedFocusAndZoomParams.script_function"
+                  :disabled="hardwareSetupControlsDisabled"
+                  label="Script Function"
+                  :items="scriptFunctionOptions"
+                  theme="dark"
+                />
+                <BlueSelect
+                  v-model="intendedFocusAndZoomParams.camera_id"
+                  :disabled="props.disabled || true"
+                  label="Camera ID"
+                  :items="cameraIdOptions"
+                  theme="dark"
+                />
+                <BlueSwitch
+                  v-model="intendedFocusAndZoomParams.enable_focus_and_zoom_correlation"
+                  :disabled="hardwareSetupControlsDisabled"
+                  name="focus-zoom-correlation"
+                  label="Focus/Zoom Correlation"
+                  theme="dark"
+                />
+              </div>
+            </BlueExpansiblePanel>
+          </template>
+
+          <!-- Tilt Group -->
+          <BlueExpansiblePanel
+            title="Tilt"
+            expanded
+            body-class="px-13 pt-4 pb-4"
+            theme="dark"
+          >
+            <BlueSelect
+              v-model="intendedFocusAndZoomParams.tilt_channel"
+              :disabled="hardwareSetupControlsDisabled"
+              label="PWM Output Channel"
+              :items="availableServoChannelOptions"
+              :error-messages="channelErrors.tilt_channel ? [channelErrors.tilt_channel] : []"
+              theme="dark"
+              @update:model-value="handleChannelChanges('tilt_channel', $event)"
+            />
+            <div class="flex flex-row gap-3">
+              <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                Min (µs)
+                <BlueInput
+                  v-model="tiltChannelMin"
+                  name="tilt-channel-min"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+              <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                Trim (µs)
+                <BlueInput
+                  v-model="tiltChannelTrim"
+                  name="tilt-channel-trim"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+              <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                Max (µs)
+                <BlueInput
+                  v-model="tiltChannelMax"
+                  name="tilt-channel-max"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+            </div>
+            <div class="flex flex-row gap-3">
+              <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                Pitch Min (°)
+                <BlueInput
+                  v-model="tiltMntPitchMin"
+                  name="tilt-mnt-pitch-min"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+              <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs opacity-70">
+                Pitch Max (°)
+                <BlueInput
+                  v-model="tiltMntPitchMax"
+                  name="tilt-mnt-pitch-max"
+                  :disabled="hardwareSetupControlsDisabled"
+                  type="number"
+                  width="100%"
+                  theme="dark"
+                />
+              </label>
+            </div>
+            <div class="flex flex-col gap-[15px]">
+              <BlueSwitch
+                v-model="intendedFocusAndZoomParams.tilt_channel_reversed"
+                :disabled="hardwareSetupControlsDisabled"
+                name="tilt-channel-reversed"
+                label="Reverse Direction"
+                theme="dark"
+              />
+              <BlueSelect
+                v-model="intendedFocusAndZoomParams.tilt_mnt_type"
+                :disabled="hardwareSetupControlsDisabled"
+                label="Mount Type"
+                :items="mountTypeOptions"
+                theme="dark"
+              />
+            </div>
+          </BlueExpansiblePanel>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-col items-end gap-3 mt-5">
+            <p
+              v-if="hardwareSetupDisabledReason"
+              class="text-sm opacity-80 mb-0"
+            >
+              {{ hardwareSetupDisabledReason }}
+            </p>
+            <p
+              v-if="setupPreviewError"
+              class="text-sm text-[#FF8A80] mb-0"
+            >
+              {{ setupPreviewError }}
+            </p>
+            <div class="flex flex-row gap-3 justify-end">
+              <BlueButton
+                :disabled="hardwareSetupControlsDisabled"
+                density="compact"
+                theme="dark"
+                @click="showAdvancedHardware = false"
+              >
+                Back to simple
+              </BlueButton>
+              <BlueTooltip
+                text="Disabled while the vehicle is armed"
+                :disabled="!vehicleArmed"
+              >
+                <BlueButton
+                  variant="filled"
+                  density="compact"
+                  :disabled="hasChannelErrors || hardwareSetupControlsDisabled || vehicleArmed"
+                  :loading="props.loading"
+                  theme="dark"
+                  @click="requestCustomHardwareSetup"
+                >
+                  Apply custom hardware setup
+                </BlueButton>
+              </BlueTooltip>
+            </div>
+          </div>
+        </div>
+      </BlueExpansiblePanel>
     </div>
   </div>
 
   <AutopilotRestartDialog
     :show="pendingAutopilotRestart !== null"
+    :preview="pendingRestartPreview"
     @cancel="closeAutopilotRestart"
     @confirm="confirmAutopilotRestart"
   />
@@ -748,7 +773,7 @@ import {
 import { createPendingFields } from '@/utils/pendingFields'
 import { rebootCamera } from '@/utils/rebootCamera'
 import { useCameraState } from '@/utils/useCameraState'
-import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, MountType, ScriptFunction, ServoChannel } from '@/bindings/autopilot'
+import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, LensType, MountType, ScriptFunction, ServoChannel, SetupPreview } from '@/bindings/autopilot'
 import type { CameraStateEvent, OnePushAwbStatus } from '@/bindings/br4kcam_api'
 import WelcomeDialog from './WelcomeDialog.vue'
 import AutopilotRestartDialog from './AutopilotRestartDialog.vue'
@@ -823,6 +848,7 @@ const baseParams = ref<BaseParameterSetting>({
 })
 
 const currentFocusAndZoomParams = ref<ActuatorsParametersConfig>({
+  lens: null,
   camera_id: null,
   focus_channel: null,
   focus_channel_min: null,
@@ -1002,13 +1028,63 @@ const scrollToHardwareSetup = async (): Promise<void> => {
   )
 }
 
-const onWelcomeGoToSetup = (): void => {
+const onWelcomeGoToSetup = (lens: LensType): void => {
+  stagedLens.value = lens
   scrollToHardwareSetup()
   showWelcomeDialog.value = false
 }
 const showAdvancedHardware = ref(false)
+
+/** Lens picked in Hardware setup or Welcome. Only applying the setup saves it; `null` follows the saved lens. */
+const stagedLens = ref<LensType | null>(null)
+const savedLens = computed<LensType | null>(() => currentFocusAndZoomParams.value.lens)
+/** The applied lens, which decides the day-to-day controls. */
+const savedLensIsFixedFocus = computed(() => savedLens.value === 'FixedFocus')
+/** The lens the next hardware setup apply is for, which decides the setup form. */
+const selectedLens = computed<LensType>(() => stagedLens.value ?? savedLens.value ?? 'Motorized')
+const selectedLensIsFixedFocus = computed(() => selectedLens.value === 'FixedFocus')
+
+const lensButtonItems = computed(() => [
+  {
+    name: 'Motorized focus & zoom',
+    preSelected: selectedLens.value === 'Motorized',
+    onSelected: () => { stagedLens.value = 'Motorized' },
+  },
+  {
+    name: 'Fixed focus',
+    preSelected: selectedLens.value === 'FixedFocus',
+    onSelected: () => { stagedLens.value = 'FixedFocus' },
+  },
+])
+
+/** Why the last apply was not offered: a lens change is only applied once its preview shows what it changes. */
+const setupPreviewError = ref<string | null>(null)
+watch(selectedLens, () => {
+  setupPreviewError.value = null
+})
+
+/**
+ * The fetched `preview`, or `undefined` when a lens change cannot go ahead because its
+ * preview failed. Other applies still ask, just without the list.
+ */
+const checkedSetupPreview = (preview: unknown): SetupPreview | null | undefined => {
+  if (isSetupPreview(preview)) return preview
+  if (lensChangeNotice.value === null) return null
+  setupPreviewError.value = 'Could not load what the lens change would change on the autopilot, so nothing was applied. Wait until the autopilot is connected and its parameters are loaded, then try again.'
+  return undefined
+}
+
+const lensChangeNotice = computed(() => {
+  if (isConfigured.value !== true || savedLens.value == null || selectedLens.value === savedLens.value) {
+    return null
+  }
+  return selectedLensIsFixedFocus.value
+    ? 'Applying the setup will release the focus, zoom and script channels this camera used, and remove the autopilot script if no other camera needs it. You will see the exact list before anything is written.'
+    : 'Applying the setup will configure the focus, zoom and script channels again and install the autopilot script.'
+})
 const bitrateInfoOpen = ref(false)
 const intendedFocusAndZoomParams = ref<ActuatorsParametersConfig>({
+  lens: null,
   camera_id: null,
   focus_channel: null,
   focus_channel_min: null,
@@ -1067,6 +1143,7 @@ const tiltMntPitchMin = numberField('tilt_mnt_pitch_min')
 const tiltMntPitchMax = numberField('tilt_mnt_pitch_max')
 
 const defaultFocusAndZoomParams = ref<ActuatorsParametersConfig>({
+  lens: null,
   camera_id: null,
   focus_channel: null,
   focus_channel_min: null,
@@ -1104,7 +1181,13 @@ watch(
     correlationLatch.value = null
     isConfigured.value = null
     showAdvancedHardware.value = false
+    stagedLens.value = null
+    setupPreviewError.value = null
+    // A pending confirmation was for the previous camera.
+    pendingAutopilotRestart.value = null
+    pendingRestartPreview.value = null
     const emptyParams: ActuatorsParametersConfig = {
+      lens: null,
       camera_id: null,
       focus_channel: null,
       focus_channel_min: null,
@@ -1182,20 +1265,23 @@ const whiteBalanceModeButtonItems = computed(() => [
 ])
 
 
+const CHANNEL_KEYS = ['focus_channel', 'zoom_channel', 'tilt_channel', 'script_channel'] as const
+type ChannelKey = (typeof CHANNEL_KEYS)[number]
+
+/** Channels the selected lens uses: a fixed-focus lens only has tilt. */
+const activeChannelKeys = computed<readonly ChannelKey[]>(() =>
+  selectedLensIsFixedFocus.value ? ['tilt_channel'] : CHANNEL_KEYS,
+)
+
 const channelErrors = computed(() => {
-  const errors: Record<keyof Pick<ActuatorsParametersConfig, 'focus_channel' | 'zoom_channel' | 'tilt_channel' | 'script_channel'>, string | null> = {
+  const errors: Record<ChannelKey, string | null> = {
     focus_channel: null,
     zoom_channel: null,
     tilt_channel: null,
     script_channel: null,
   }
 
-  const channels = [
-    'focus_channel',
-    'zoom_channel',
-    'tilt_channel',
-    'script_channel',
-  ] as const
+  const channels = activeChannelKeys.value
 
   // Check required
   for (const key of channels) {
@@ -1445,30 +1531,17 @@ const applyCameraStateEvent = (body: unknown) => {
 
 useCameraState(toRef(props, 'selectedCameraUuid'), applyCameraStateEvent)
 
-const isHardwareSetupComplete = computed<boolean>(() => {
-  return (
-    intendedFocusAndZoomParams.value.focus_channel !== null &&
-    intendedFocusAndZoomParams.value.zoom_channel !== null &&
-    intendedFocusAndZoomParams.value.tilt_channel !== null &&
-    intendedFocusAndZoomParams.value.script_channel !== null
-  )
-})
+const isHardwareSetupComplete = computed<boolean>(() =>
+  activeChannelKeys.value.every((key) => intendedFocusAndZoomParams.value[key] !== null),
+)
 
 const availableServoChannelOptions = computed(() => {
-  const selectedChannels = new Set([
-    intendedFocusAndZoomParams.value.focus_channel,
-    intendedFocusAndZoomParams.value.zoom_channel,
-    intendedFocusAndZoomParams.value.tilt_channel,
-    intendedFocusAndZoomParams.value.script_channel
-  ].filter(channel => channel !== null))
+  const activeChannels = activeChannelKeys.value.map((key) => intendedFocusAndZoomParams.value[key])
+  const selectedChannels = new Set(activeChannels.filter(channel => channel !== null))
 
   return servoChannelOptions.map(option => ({
     ...option,
-    disabled: selectedChannels.has(option.value) &&
-      option.value !== intendedFocusAndZoomParams.value.focus_channel &&
-      option.value !== intendedFocusAndZoomParams.value.zoom_channel &&
-      option.value !== intendedFocusAndZoomParams.value.tilt_channel &&
-      option.value !== intendedFocusAndZoomParams.value.script_channel
+    disabled: selectedChannels.has(option.value) && !activeChannels.includes(option.value),
   }))
 })
 
@@ -1555,6 +1628,8 @@ const tiltStabilizationPending = ref(false)
 const vehicleArmed = computed(() => systemHealth.value?.vehicle_armed === true)
 // A UI action that may restart the autopilot waits here until the user confirms.
 const pendingAutopilotRestart = ref<(() => void) | null>(null)
+/** What the pending hardware setup apply changes, shown with the confirmation. */
+const pendingRestartPreview = ref<SetupPreview | null>(null)
 // BlueSwitch flips its own state on click and only resyncs when its model prop changes, so
 // closing the dialog remounts the switch to show the real value again.
 const tiltStabilizationSwitchKey = ref(0)
@@ -1606,15 +1681,23 @@ const updateTiltStabilization = (enabled: boolean): void => {
     })
 }
 
-const requestAutopilotRestart = (run: () => void): void => {
+const requestAutopilotRestart = (run: () => void, preview: SetupPreview | null = null): void => {
   if (vehicleArmed.value) return
+  pendingRestartPreview.value = preview
   pendingAutopilotRestart.value = run
 }
 
 const closeAutopilotRestart = (): void => {
   pendingAutopilotRestart.value = null
+  pendingRestartPreview.value = null
   tiltStabilizationSwitchKey.value += 1
 }
+
+const isSetupPreview = (value: unknown): value is SetupPreview =>
+  typeof value === 'object'
+  && value !== null
+  && Array.isArray((value as SetupPreview).changes)
+  && Array.isArray((value as SetupPreview).released)
 
 const confirmAutopilotRestart = (): void => {
   const run = pendingAutopilotRestart.value
@@ -1724,8 +1807,8 @@ const handleChannelChanges = (param: keyof ActuatorsParametersConfig, value: any
   if (!props.selectedCameraUuid || props.disabled) return
 
   // Optional: prevent duplicates (though UI should disable them)
-  const isAlreadySelected = Object.entries(intendedFocusAndZoomParams.value).some(
-    ([key, val]) => key !== param && val === value
+  const isAlreadySelected = activeChannelKeys.value.some(
+    (key) => key !== param && intendedFocusAndZoomParams.value[key] === value
   )
 
   if (isAlreadySelected && value !== null) {
@@ -1973,25 +2056,47 @@ const applyRecommendedCameraSettings = (): void => {
     })
 }
 
-const saveHardwareSetup = async (): Promise<void> => {
-  if (!props.selectedCameraUuid || props.disabled || !defaultFocusAndZoomParams.value.camera_id || !intendedFocusAndZoomParams.value) return
+/**
+ * The custom hardware setup the form describes. The lens is only sent once known, so a
+ * setup sent before the saved one loads keeps the saved lens.
+ */
+const customSetupParameters = (): ActuatorsParametersConfig => ({
+  ...(showAdvancedHardware.value ? intendedFocusAndZoomParams.value : defaultFocusAndZoomParams.value),
+  lens: stagedLens.value ?? savedLens.value,
+})
 
+/** Ask before applying the custom setup, listing what it changes and releases. */
+const requestCustomHardwareSetup = async (): Promise<void> => {
+  if (!props.selectedCameraUuid || props.disabled || vehicleArmed.value) return
+  if (!defaultFocusAndZoomParams.value.camera_id || !intendedFocusAndZoomParams.value) return
   if (!isHardwareSetupComplete.value) {
     console.error('All channel selections are required')
     return
   }
-
   const cameraUuid = props.selectedCameraUuid
-  let payloadParams: ActuatorsParametersConfig
-  payloadParams = { ...defaultFocusAndZoomParams.value }
-  if (showAdvancedHardware.value) {
-    payloadParams = { ...intendedFocusAndZoomParams.value }
-  }
+  // What is previewed is exactly what the confirmation applies.
+  const parameters = customSetupParameters()
+  setupPreviewError.value = null
+  const preview = await backendClient
+    .request('POST', '/autopilot/control', {
+      camera_uuid: cameraUuid,
+      action: 'previewSetActuatorsConfig',
+      json: { parameters } as ActuatorsConfig,
+    })
+    .catch(() => null)
+  if (props.selectedCameraUuid !== cameraUuid) return
+  const setupPreview = checkedSetupPreview(preview)
+  if (setupPreview === undefined) return
+  requestAutopilotRestart(() => saveHardwareSetup(cameraUuid, parameters), setupPreview)
+}
+
+const saveHardwareSetup = async (cameraUuid: string, parameters: ActuatorsParametersConfig): Promise<void> => {
+  if (props.selectedCameraUuid !== cameraUuid || props.disabled) return
 
   const payload: ActuatorsControl = {
     camera_uuid: cameraUuid,
     action: "setActuatorsConfig",
-    json: { parameters: payloadParams } as ActuatorsConfig
+    json: { parameters } as ActuatorsConfig
   }
 
   console.log('Saving hardware setup:', payload)
@@ -2014,6 +2119,7 @@ const saveHardwareSetup = async (): Promise<void> => {
         applyConfigParameters(newParams)
         intendedFocusAndZoomParams.value = { ...newParams }
       }
+      stagedLens.value = null
       showAdvancedHardware.value = false
       applyPanelLayout(true)
     })
@@ -2027,34 +2133,38 @@ const saveHardwareSetup = async (): Promise<void> => {
 const resetToRecommendedDefaults = async (force: boolean): Promise<void> => {
   if (!props.selectedCameraUuid || props.disabled || vehicleArmed.value) return
   const cameraUuid = props.selectedCameraUuid
-  if (!force) {
-    // Only a non-forced apply that changes something reboots the autopilot, so only that one asks first.
-    // A failed preview falls through to the confirmation.
-    const changes = await backendClient
-      .request('POST', '/autopilot/control', {
-        camera_uuid: cameraUuid,
-        action: 'previewResetActuatorsConfig',
-      })
-      .catch(() => null)
-    if (props.selectedCameraUuid !== cameraUuid) return
-    if (Array.isArray(changes) && changes.length === 0) {
-      applyRecommendedDefaults(false)
-      return
-    }
+  // Only a lens picked here is sent; otherwise the backend keeps the saved one, which may not
+  // have loaded here yet.
+  const lens = stagedLens.value
+  setupPreviewError.value = null
+  const preview = await backendClient
+    .request('POST', '/autopilot/control', {
+      camera_uuid: cameraUuid,
+      action: 'previewDefaultSetup',
+      json: lens,
+    })
+    .catch(() => null)
+  if (props.selectedCameraUuid !== cameraUuid) return
+  const setupPreview = checkedSetupPreview(preview)
+  if (setupPreview === undefined) return
+  // Only a non-forced apply that changes something reboots the autopilot, so only that one asks first.
+  if (!force && setupPreview && setupPreview.changes.length === 0 && setupPreview.released.length === 0) {
+    applyRecommendedDefaults(cameraUuid, false, lens)
+    return
   }
   requestAutopilotRestart(() => {
-    applyRecommendedDefaults(force)
-  })
+    applyRecommendedDefaults(cameraUuid, force, lens)
+  }, setupPreview)
 }
 
-const applyRecommendedDefaults = async (force: boolean): Promise<void> => {
-  if (!props.selectedCameraUuid || props.disabled) return
+const applyRecommendedDefaults = async (cameraUuid: string, force: boolean, lens: LensType | null): Promise<void> => {
+  if (props.selectedCameraUuid !== cameraUuid || props.disabled) return
 
-  const cameraUuid = props.selectedCameraUuid
   const generation = actuatorsRequestGeneration.value
   const payload = {
     camera_uuid: cameraUuid,
     action: force ? 'forceResetActuatorsConfig' : 'resetActuatorsConfig',
+    json: lens,
   }
 
   backendClient
@@ -2073,6 +2183,7 @@ const applyRecommendedDefaults = async (force: boolean): Promise<void> => {
         applyConfigParameters(newParams)
         intendedFocusAndZoomParams.value = { ...newParams }
       }
+      stagedLens.value = null
       showAdvancedHardware.value = false
     })
     .catch((error) => {
