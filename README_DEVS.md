@@ -87,6 +87,65 @@ docker run --rm -it --net=host br4kcam-manager:latest --help
 - Some MAVLink-compatible autopilot firmware running with version `>=4.7.0`
 - Some MAVLink router endpoint, configurable using the `--mavlink` command line argument.
 
+## Camera firmware updates
+
+The extension offers camera firmware updates from a firmware server. Without one, the
+feature stays hidden.
+
+### Configuring the extension
+
+Set `FIRMWARE_SERVER_URL` (or `--firmware-server-url`) to the directory that holds
+`index.json`, e.g. `https://example.com/4k-cam/firmware/`. On BlueOS, edit the extension's
+settings and fill the `FIRMWARE_SERVER_URL=` entry under `Env`. An empty or invalid value
+only disables firmware updates.
+
+### Firmware server requirements
+
+Any static HTTP(S) host works, a public bucket included. The extension downloads from it
+itself (not the browser), so CORS does not matter.
+
+- The vehicle must reach it. Vehicles without internet simply see no updates.
+- Serve HTTPS. The checksum catches corrupted downloads, but over plain HTTP anyone on the
+  path could swap both the image and its checksum.
+- `index.json` lists the firmwares, each `file` relative to `index.json`:
+
+  ```json
+  {
+    "firmwares": [
+      {
+        "version": "18.010.U35.6_0054_V18(261030)",
+        "file": "IPC_18.010.U35.6_0054_V18(261030).img",
+        "sha256": "6e80f33b4dbac5d7a0c5a32f093116a95cc304b599c7d17ed363c55fec128f07"
+      }
+    ]
+  }
+  ```
+
+- `version` must be exactly what the camera reports once running it (`getSysConfig`'s
+  `version`): the update is only reported successful when they match.
+- `file` is the vendor's `IPC_*.img` update image, served unchanged (about 26 MB). The index
+  must be fetched within 30 s and an image within 5 minutes.
+- The banner offers the newest version (by `_V<n>(<date>)`) when it is newer than the
+  camera's. Any listed version, older ones included, can be installed through the API.
+
+[tools/firmware_server/make_index.py](tools/firmware_server/make_index.py) writes `index.json`
+for a directory of `IPC_<version>.img` files. To test locally:
+
+```bash
+python3 tools/firmware_server/make_index.py ./firmware
+python3 -m http.server 8765 -d ./firmware  # FIRMWARE_SERVER_URL=http://<this machine>:8765/
+```
+
+### What the extension checks
+
+Before anything reaches the camera, the image must match its `sha256` and its header must
+carry the hardware type the camera reports (`update_type`). The camera checks the image
+again itself: it refuses a corrupted one and reboots into its old firmware, which the
+extension reports as a failure.
+
+A camera announces a new ONVIF UUID after a firmware change (its MAC stays in the UUID). The
+extension moves the camera's saved hardware setup to the new UUID and tells the user.
+
 ## Public API
 
 Other projects depend on this API, and [api/](api/README.md) pins it: `cargo test` fails
