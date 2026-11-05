@@ -568,7 +568,10 @@ mod tests {
     const OTHER: Uuid = Uuid::from_u128(0x091a_0002);
 
     fn empty() -> Snapshot {
-        Snapshot::default()
+        Snapshot {
+            script_path: "/scripts/br4kcam.lua".to_string(),
+            ..Default::default()
+        }
     }
 
     fn config_for(actuators: &CameraActuators) -> api::ActuatorsConfig {
@@ -614,9 +617,30 @@ mod tests {
 
     /// A snapshot where `camera_uuid` has the default setup applied.
     fn set_up(snapshot: Snapshot, camera_uuid: Uuid) -> Snapshot {
-        let defaults = CameraActuators::default();
+        set_up_lens(snapshot, camera_uuid, api::LensType::Motorized)
+    }
+
+    /// A snapshot where `camera_uuid` has the default setup for `lens` applied.
+    fn set_up_lens(snapshot: Snapshot, camera_uuid: Uuid, lens: api::LensType) -> Snapshot {
+        let defaults = CameraActuators::default_for(lens);
         let plan = plan_apply(&snapshot, camera_uuid, &config_for(&defaults), true).unwrap();
         applied(snapshot, camera_uuid, &plan)
+    }
+
+    fn fixed() -> api::LensType {
+        api::LensType::FixedFocus
+    }
+
+    fn lens_config(lens: api::LensType) -> api::ActuatorsConfig {
+        parameters(api::ActuatorsParametersConfig {
+            lens: Some(lens),
+            ..Default::default()
+        })
+    }
+
+    fn sorted(mut names: Vec<&str>) -> Vec<&str> {
+        names.sort_unstable();
+        names
     }
 
     /// `config` over the saved setup of `camera_uuid`, applied.
@@ -991,6 +1015,377 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.next.closest_points, points);
+    }
+
+    #[test]
+    fn fixed_focus_first_setup_writes_only_tilt() {
+        let defaults = CameraActuators::default_for(fixed());
+        let plan = plan_apply(&empty(), CAMERA, &config_for(&defaults), true).unwrap();
+
+        assert!(plan.releases.is_empty());
+        assert!(!plan.writes.is_empty());
+        for name in names(&plan.writes) {
+            assert!(
+                name.starts_with("SERVO16_") || name.starts_with("MNT1_"),
+                "{name} is not a tilt parameter"
+            );
+        }
+        assert_eq!(plan.script, ScriptAction::Keep);
+        assert!(plan.reboot);
+        assert!(plan.after_reload.is_empty());
+        assert_eq!(plan.next.parameters.lens, fixed());
+    }
+
+    #[test]
+    fn switching_to_fixed_focus_releases_once() {
+        let snapshot = set_up(empty(), CAMERA);
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+
+        assert_eq!(
+            sorted(names(&plan.releases)),
+            [
+                "CAM1_TYPE",
+                "SERVO10_FUNCTION",
+                "SERVO11_FUNCTION",
+                "SERVO12_FUNCTION"
+            ]
+        );
+        assert!(plan.writes.is_empty(), "{:?}", names(&plan.writes));
+        assert_eq!(plan.script, ScriptAction::Delete);
+        assert!(plan.reboot);
+        let mut description = describe_releases(&plan, &snapshot);
+        assert_eq!(
+            description.pop().unwrap(),
+            "Lua script br4kcam.lua: removed"
+        );
+        description.sort_unstable();
+        assert_eq!(
+            description,
+            [
+                "CAM1_TYPE: 1 → 0",
+                "SERVO10_FUNCTION: 94 → 0",
+                "SERVO11_FUNCTION: 180 → 0",
+                "SERVO12_FUNCTION: 92 → 0",
+            ]
+        );
+
+        let snapshot = applied(snapshot, CAMERA, &plan);
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+        assert!(plan.releases.is_empty());
+        assert!(plan.writes.is_empty());
+        assert_eq!(plan.script, ScriptAction::Keep);
+        assert!(!plan.reboot);
+    }
+
+    #[test]
+    fn release_keeps_what_another_motorized_camera_uses() {
+        let snapshot = set_up(empty(), OTHER);
+        let snapshot = set_up(snapshot, CAMERA);
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+
+        // Both cameras use the default channels and CAM1, so nothing is released and the
+        // installed script already serves the other camera.
+        assert!(plan.releases.is_empty(), "{:?}", names(&plan.releases));
+        assert_eq!(plan.script, ScriptAction::Keep);
+        assert!(!plan.reboot);
+    }
+
+    #[test]
+    fn release_keeps_a_channel_tilt_moves_onto() {
+        let snapshot = set_up(empty(), CAMERA);
+        let config = api::ActuatorsConfig {
+            parameters: Some(api::ActuatorsParametersConfig {
+                lens: Some(fixed()),
+                tilt_channel: Some(api::ServoChannel::SERVO10),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let plan = plan_apply(&snapshot, CAMERA, &config, false).unwrap();
+
+        assert!(!names(&plan.releases).contains(&"SERVO10_FUNCTION"));
+        assert!(names(&plan.writes).contains(&"SERVO10_FUNCTION"));
+        assert!(names(&plan.releases).contains(&"SERVO16_FUNCTION"));
+    }
+
+    #[test]
+    fn switching_to_motorized_writes_the_whole_focus_setup_again() {
+        let snapshot = set_up_lens(empty(), CAMERA, fixed());
+        let plan = plan_apply(
+            &snapshot,
+            CAMERA,
+            &lens_config(api::LensType::Motorized),
+            false,
+        )
+        .unwrap();
+
+        for name in [
+            "CAM1_TYPE",
+            "SERVO10_FUNCTION",
+            "SERVO11_FUNCTION",
+            "SERVO12_FUNCTION",
+            "SERVO10_MIN",
+            "SCR_ENABLE",
+        ] {
+            let write = plan
+                .writes
+                .iter()
+                .find(|write| write.name == name)
+                .unwrap_or_else(|| panic!("{name} is not written"));
+            assert!(write.force, "{name} must be forced");
+        }
+        // Tilt did not change, so it is left alone.
+        assert!(
+            !names(&plan.writes)
+                .iter()
+                .any(|name| name.starts_with("SERVO16_"))
+        );
+        assert!(matches!(plan.script, ScriptAction::Write(_)));
+        assert!(plan.reboot);
+    }
+
+    #[test]
+    fn switching_to_motorized_on_other_channels_leaves_unwritten_ones_alone() {
+        let alone = set_up_lens(empty(), CAMERA, fixed());
+        let shared = set_up_lens(set_up(empty(), OTHER), CAMERA, fixed());
+        let config = api::ActuatorsConfig {
+            parameters: Some(api::ActuatorsParametersConfig {
+                lens: Some(api::LensType::Motorized),
+                camera_id: Some(api::CameraID::CAM2),
+                focus_channel: Some(api::ServoChannel::SERVO13),
+                script_channel: Some(api::ServoChannel::SERVO14),
+                zoom_channel: Some(api::ServoChannel::SERVO15),
+                // The other camera's mount pitch holds the default tilt channel.
+                tilt_channel: Some(api::ServoChannel::SERVO9),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        // The fixed-focus camera never wrote the default channels or CAM1, and the other
+        // camera uses them.
+        for snapshot in [alone, shared] {
+            let plan = plan_apply(&snapshot, CAMERA, &config, false).unwrap();
+            for name in [
+                "SERVO10_FUNCTION",
+                "SERVO11_FUNCTION",
+                "SERVO12_FUNCTION",
+                "CAM1_TYPE",
+            ] {
+                assert!(!names(&plan.writes).contains(&name), "{name} is written");
+            }
+            for name in [
+                "SERVO13_FUNCTION",
+                "SERVO14_FUNCTION",
+                "SERVO15_FUNCTION",
+                "CAM2_TYPE",
+            ] {
+                assert!(names(&plan.writes).contains(&name), "{name} is not written");
+            }
+        }
+    }
+
+    #[test]
+    fn default_setup_keeps_focus_on_the_channel_tilt_leaves() {
+        // A fixed-focus camera with tilt on the default focus channel.
+        let snapshot = set_up_lens(empty(), CAMERA, fixed());
+        let config = api::ActuatorsConfig {
+            parameters: Some(api::ActuatorsParametersConfig {
+                tilt_channel: Some(api::ServoChannel::SERVO10),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let plan = plan_apply(&snapshot, CAMERA, &config, false).unwrap();
+        let snapshot = applied(snapshot, CAMERA, &plan);
+        assert_eq!(held(&snapshot, "SERVO10_FUNCTION"), Some(7.0));
+
+        let defaults = CameraActuators::default();
+        for overwrite in [false, true] {
+            let plan = plan_apply(&snapshot, CAMERA, &config_for(&defaults), overwrite).unwrap();
+            let snapshot = applied(snapshot.clone(), CAMERA, &plan);
+
+            let mut expected = IndexMap::new();
+            owned_parameters::push_all_expectations(&defaults.parameters, &mut expected);
+            let focus = param_display_value(&expected["SERVO10_FUNCTION"]);
+            assert_eq!(held(&snapshot, "SERVO10_FUNCTION"), focus, "{overwrite}");
+            assert_eq!(
+                held(&snapshot, "SERVO16_FUNCTION"),
+                Some(7.0),
+                "{overwrite}"
+            );
+        }
+    }
+
+    #[test]
+    fn release_leaves_a_channel_repurposed_since() {
+        let mut snapshot = set_up(empty(), CAMERA);
+        snapshot.autopilot.insert(
+            "SERVO11_FUNCTION".to_string(),
+            Parameter {
+                name: "SERVO11_FUNCTION".to_string(),
+                value: ParamType::INT16(1),
+            },
+        );
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+
+        assert_eq!(
+            sorted(names(&plan.releases)),
+            ["CAM1_TYPE", "SERVO10_FUNCTION", "SERVO12_FUNCTION"]
+        );
+    }
+
+    #[test]
+    fn release_describes_the_script_handed_to_another_camera() {
+        let snapshot = set_up(empty(), OTHER);
+        let mut snapshot = set_up(snapshot, CAMERA);
+        snapshot
+            .saved
+            .get_mut(&OTHER)
+            .unwrap()
+            .parameters
+            .focus_margin_gain = 2.0;
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+
+        assert!(matches!(plan.script, ScriptAction::Write(_)));
+        assert!(plan.reboot);
+        // The script parameter goes back to the value the other camera gives it.
+        assert_eq!(
+            describe_releases(&plan, &snapshot),
+            [
+                "BR4KCAM1_GAIN: 1 → 2",
+                "Lua script br4kcam.lua: rewritten for the other motorized cameras"
+            ]
+        );
+
+        // Its script parameters are the other camera's once the autopilot rebooted.
+        let snapshot = applied(snapshot, CAMERA, &plan);
+        assert_eq!(script_camera(&snapshot, CAMERA), Some(OTHER));
+    }
+
+    #[test]
+    fn release_keeps_the_script_for_the_camera_it_already_serves() {
+        const THIRD: Uuid = Uuid::from_u128(0x091a_0003);
+        let mut snapshot = set_up(empty(), THIRD);
+        snapshot
+            .saved
+            .get_mut(&THIRD)
+            .unwrap()
+            .parameters
+            .focus_margin_gain = 3.0;
+        let snapshot = set_up(snapshot, OTHER);
+        let snapshot = set_up(snapshot, CAMERA);
+        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+
+        // The installed script is the one OTHER, with the same setup, needs.
+        assert_eq!(plan.script, ScriptAction::Keep);
+        assert!(!plan.reboot);
+        let snapshot = applied(snapshot, CAMERA, &plan);
+        assert_eq!(script_camera(&snapshot, CAMERA), Some(OTHER));
+    }
+
+    #[test]
+    fn two_roles_on_one_channel_are_refused_unless_the_lens_does_not_use_one() {
+        let snapshot = set_up(empty(), CAMERA);
+        let onto_focus = |lens| {
+            parameters(api::ActuatorsParametersConfig {
+                lens: Some(lens),
+                tilt_channel: Some(api::ServoChannel::SERVO10),
+                ..Default::default()
+            })
+        };
+
+        let error = plan_apply(
+            &snapshot,
+            CAMERA,
+            &onto_focus(api::LensType::Motorized),
+            false,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("SERVO10"), "{error}");
+        assert!(plan_apply(&snapshot, CAMERA, &onto_focus(fixed()), false).is_ok());
+    }
+
+    #[test]
+    fn a_motorized_channel_move_previews_only_its_release() {
+        let snapshot = set_up(empty(), CAMERA);
+        let config = parameters(api::ActuatorsParametersConfig {
+            zoom_channel: Some(api::ServoChannel::SERVO13),
+            ..Default::default()
+        });
+        let plan = plan_apply(&snapshot, CAMERA, &config, false).unwrap();
+
+        assert_eq!(
+            describe_releases(&plan, &snapshot),
+            ["SERVO11_FUNCTION: 180 → 0"]
+        );
+    }
+
+    #[test]
+    fn a_forced_reset_to_fixed_focus_releases_and_removes_the_script() {
+        let snapshot = set_up(empty(), CAMERA);
+        let defaults = CameraActuators::default_for(fixed());
+        let plan = plan_apply(&snapshot, CAMERA, &config_for(&defaults), true).unwrap();
+
+        assert_eq!(
+            sorted(names(&plan.releases)),
+            [
+                "CAM1_TYPE",
+                "SERVO10_FUNCTION",
+                "SERVO11_FUNCTION",
+                "SERVO12_FUNCTION"
+            ]
+        );
+        assert_eq!(plan.script, ScriptAction::Delete);
+        assert!(!names(&plan.writes).contains(&"SCR_ENABLE"));
+        assert!(plan.reboot);
+    }
+
+    #[test]
+    fn forgetting_the_last_motorized_camera_removes_the_script() {
+        let snapshot = set_up_lens(set_up(empty(), CAMERA), OTHER, fixed());
+        let (_, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
+
+        assert_eq!(script, ScriptAction::Delete);
+        let (_, script) = plan_forget(&snapshot, OTHER).unwrap().unwrap();
+        assert_eq!(script, ScriptAction::Keep);
+    }
+
+    #[test]
+    fn forgetting_a_camera_hands_the_script_to_another_motorized_one() {
+        let mut snapshot = set_up(set_up(empty(), OTHER), CAMERA);
+        snapshot
+            .saved
+            .get_mut(&OTHER)
+            .unwrap()
+            .parameters
+            .focus_margin_gain = 2.0;
+        let (_, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
+
+        let expected = script::generate_checked_lua_script(&snapshot.saved[&OTHER]).unwrap();
+        assert_eq!(script, ScriptAction::Write(expected));
+    }
+
+    #[test]
+    fn turning_motorized_takes_over_another_cameras_script() {
+        let mut snapshot = set_up_lens(set_up(empty(), OTHER), CAMERA, fixed());
+        snapshot
+            .saved
+            .get_mut(&OTHER)
+            .unwrap()
+            .parameters
+            .focus_margin_gain = 2.0;
+        let plan = plan_apply(
+            &snapshot,
+            CAMERA,
+            &lens_config(api::LensType::Motorized),
+            false,
+        )
+        .unwrap();
+
+        // One script file serves every camera, so the camera turning motorized takes it over.
+        let expected = script::generate_checked_lua_script(&plan.next).unwrap();
+        assert_eq!(plan.script, ScriptAction::Write(expected));
+        assert!(plan.reboot);
     }
 
     #[test]
