@@ -60,6 +60,9 @@ pub enum Action {
     /// Important: This is a wrapper, not part of the camera protocol
     #[serde(rename = "setRecommendedCameraSettings")]
     SetRecommendedCameraSettings,
+    /// Important: This is a wrapper, not part of the camera protocol
+    #[serde(rename = "getH265Support")]
+    GetH265Support,
 }
 
 /// Outcome of one reachability probe while waiting for a camera reboot.
@@ -93,6 +96,9 @@ fn control_inner(
             }
             Action::SetImageAdjustmentExAll(params) => {
                 return apply_set_image_adjustment_ex_all(params).await;
+            }
+            Action::GetH265Support => {
+                return get_h265_support(camera_control.camera_uuid).await;
             }
             _ => (),
         }
@@ -223,6 +229,37 @@ async fn apply_set_image_adjustment_ex_all(
                 .join("\n")
         )),
     }
+}
+
+async fn get_main_stream_settings(camera_uuid: Uuid) -> Result<VideoParameterSettings> {
+    use protocol::video::video_parameters::VideoChannelValue;
+
+    let settings = control_inner(Json(CameraControl {
+        camera_uuid,
+        action: Action::GetVideoParameterSettings(VideoParameterSettings {
+            channel: Some(VideoChannelValue::MainStream),
+            ..Default::default()
+        }),
+    }))
+    .await?;
+    Ok(serde_json::from_value(settings)?)
+}
+
+/// `{ supported, reason, enabled }`: whether MCM and the camera firmware can do H265, and
+/// whether the main stream already uses it.
+#[instrument(level = "debug")]
+async fn get_h265_support(camera_uuid: Uuid) -> Result<serde_json::Value> {
+    use protocol::video::video_parameters::VideoEncodeTypeValue;
+
+    let reason = mcm_client::h265_unsupported_reason(&camera_uuid).await?;
+    let enabled = get_main_stream_settings(camera_uuid).await?.encode_type
+        == Some(VideoEncodeTypeValue::H265);
+
+    Ok(serde_json::json!({
+        "supported": reason.is_none(),
+        "reason": reason,
+        "enabled": enabled,
+    }))
 }
 
 #[instrument(level = "debug")]
