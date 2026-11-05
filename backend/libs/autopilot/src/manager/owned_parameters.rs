@@ -116,7 +116,7 @@ fn prune_to_expectations() {
     health::clear_stale_parameter_drifts(&expected);
 }
 
-pub(super) fn push_all_expectations(
+pub(crate) fn push_all_expectations(
     parameters: &ActuatorsParameters,
     map: &mut IndexMap<String, ParamType>,
 ) {
@@ -124,10 +124,13 @@ pub(super) fn push_all_expectations(
     // but they are not owned afterwards: users tune them in QGC / BlueOS parameters,
     // and the Lua script already reads the live values. Flagging drift would block
     // the UI over a customization we should allow.
-    camera::push_owned_expectations(parameters, map);
-    script::push_owned_expectations(parameters, map);
-    focus::push_owned_expectations(parameters, map);
-    zoom::push_owned_expectations(parameters, map);
+    // A fixed-focus lens only has tilt, so it owns nothing else.
+    if parameters.has_motorized_lens() {
+        camera::push_owned_expectations(parameters, map);
+        script::push_owned_expectations(parameters, map);
+        focus::push_owned_expectations(parameters, map);
+        zoom::push_owned_expectations(parameters, map);
+    }
     tilt::push_owned_expectations(parameters, map);
 }
 
