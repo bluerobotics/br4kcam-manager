@@ -626,6 +626,18 @@ pub async fn h265_unsupported_reason(camera_uuid: &Uuid) -> Result<Option<String
     }
 }
 
+/// Drop the camera's MCM stream so the stream task recreates it with the camera's current encode.
+#[instrument(level = "debug")]
+pub async fn recreate_camera_stream(camera_uuid: &Uuid) -> Result<()> {
+    let mcm = connect().await?;
+    let stream = camera_stream(&mcm, camera_uuid).await?;
+    await_mcm_mutation(mcm.address, "delete_stream", || {
+        mcm.delete_stream(&stream.name)
+    })
+    .await?;
+    Ok(())
+}
+
 fn stream_needs_recreation(state: StreamStatusState) -> bool {
     state == StreamStatusState::Stopped
 }
