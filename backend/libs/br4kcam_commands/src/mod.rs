@@ -14,6 +14,7 @@ use url::Url;
 use uuid::Uuid;
 use web_client::send_request;
 
+pub mod firmware;
 pub mod protocol;
 
 /// Number of consecutive transport-level failures needed to consider the camera offline,
