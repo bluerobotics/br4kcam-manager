@@ -59,6 +59,14 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
         return Ok(Value::Null);
     }
 
+    // Never flash a camera that is already flashing or rebooting. Checked before the overlay
+    // starts, so the refusal does not clear the running update's overlay.
+    if matches!(action, CameraAction::UpdateFirmware(_)) && camera_ui::get(camera_uuid).rebooting {
+        return Err(ControlError::other(
+            "The camera is busy updating or rebooting".to_string(),
+        ));
+    }
+
     camera_ui::start_camera_action(camera_uuid, &action);
 
     let result = match &action {
