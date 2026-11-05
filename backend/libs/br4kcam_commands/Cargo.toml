@@ -20,12 +20,13 @@ anyhow = { workspace = true }
 axum = { version = "0.8.3", features = ["ws"] }
 base16ct = { version = "0.2.0", features = ["alloc"] }
 md-5 = "0.10.6"
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_repr = { workspace = true }
 serde_json = { workspace = true }
 serde_with = "3.12.0"
+sha2 = "0.10.9"
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 url = { workspace = true }
