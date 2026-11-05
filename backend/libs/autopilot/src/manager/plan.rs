@@ -30,12 +30,15 @@ pub(crate) struct PlannedWrite {
 pub(crate) enum ScriptAction {
     Keep,
     Write(String),
+    Delete,
 }
 
 #[derive(Debug)]
 pub(crate) struct ApplyPlan {
     /// Hardware setup writes, in order.
     pub writes: Vec<PlannedWrite>,
+    /// Writes that release what the camera wrote and no longer uses, after [`Self::writes`].
+    pub releases: Vec<PlannedWrite>,
     pub script: ScriptAction,
     /// Restart the autopilot's scripts, as no reboot follows.
     pub reload_scripts: bool,
@@ -53,6 +56,7 @@ pub(crate) struct Snapshot {
     pub saved: IndexMap<Uuid, CameraActuators>,
     /// The autopilot's parameter cache.
     pub autopilot: IndexMap<String, Parameter>,
+    pub script_path: String,
     /// The installed Lua script, if any.
     pub installed_script: Option<String>,
     /// A reboot an earlier apply asked for has not finished yet.
@@ -80,6 +84,7 @@ impl Snapshot {
         Ok(Self {
             saved,
             autopilot,
+            script_path,
             installed_script,
             reboot_pending: super::reboot_pending(),
         })
@@ -102,6 +107,7 @@ pub(super) struct Change<'a> {
 pub(super) struct Planner<'a> {
     autopilot: &'a IndexMap<String, Parameter>,
     writes: Vec<PlannedWrite>,
+    releases: Vec<PlannedWrite>,
 }
 
 impl<'a> Planner<'a> {
@@ -109,6 +115,7 @@ impl<'a> Planner<'a> {
         Self {
             autopilot,
             writes: Vec::new(),
+            releases: Vec::new(),
         }
     }
 
@@ -302,18 +309,127 @@ fn release(
         else {
             continue;
         };
-        wrote |= planner.write_if_needed(name, release_value, false);
+        if !planner.autopilot_holds(&name, &release_value) {
+            planner.releases.push(PlannedWrite {
+                name,
+                value: release_value,
+                force: false,
+            });
+            wrote = true;
+        }
     }
     wrote
 }
 
-/// Plans forgetting `camera_uuid`: the writes that release what it holds, or `None` when it
-/// has no saved setup.
-pub(crate) fn plan_forget(snapshot: &Snapshot, camera_uuid: Uuid) -> Option<Vec<PlannedWrite>> {
-    let saved = snapshot.saved.get(&camera_uuid)?;
+/// What happens to the script once `camera_uuid` stops using it: it follows another motorized
+/// camera, preferably one it already serves, or goes away with the last one.
+fn script_without(snapshot: &Snapshot, camera_uuid: Uuid) -> Result<ScriptAction> {
+    let motorized_others: Vec<&CameraActuators> = snapshot
+        .saved
+        .iter()
+        .filter(|(uuid, actuators)| {
+            **uuid != camera_uuid && actuators.parameters.has_motorized_lens()
+        })
+        .map(|(_, actuators)| actuators)
+        .collect();
+    let mut serves_another = false;
+    for other in &motorized_others {
+        serves_another |= script_installed(snapshot, &script::generate_checked_lua_script(other)?);
+    }
+    Ok(if serves_another {
+        ScriptAction::Keep
+    } else if let Some(first) = motorized_others.first() {
+        ScriptAction::Write(script::generate_checked_lua_script(first)?)
+    } else if snapshot.installed_script.is_some() {
+        ScriptAction::Delete
+    } else {
+        ScriptAction::Keep
+    })
+}
+
+/// Whether the installed script is `contents`.
+fn script_installed(snapshot: &Snapshot, contents: &str) -> bool {
+    snapshot
+        .installed_script
+        .as_deref()
+        .is_some_and(|installed| script::lua_scripts_equivalent(installed, contents))
+}
+
+/// The motorized camera the installed script serves, `preferred` first: the one whose
+/// script parameters are written once the script runs.
+pub(crate) fn script_camera(snapshot: &Snapshot, preferred: Uuid) -> Option<Uuid> {
+    let preferred_first = snapshot.saved.get_key_value(&preferred).into_iter().chain(
+        snapshot
+            .saved
+            .iter()
+            .filter(|(uuid, _)| **uuid != preferred),
+    );
+    for (uuid, camera) in preferred_first {
+        // A camera whose script cannot be generated is not the one installed.
+        if camera.parameters.has_motorized_lens()
+            && script::generate_checked_lua_script(camera)
+                .is_ok_and(|contents| script_installed(snapshot, &contents))
+        {
+            return Some(*uuid);
+        }
+    }
+    None
+}
+
+/// The releases of `plan` as `name: old → new`, and what happens to the Lua script when the
+/// camera stops using it.
+pub(crate) fn describe_releases(plan: &ApplyPlan, snapshot: &Snapshot) -> Vec<String> {
+    let display = |value: Option<f32>| value.map_or_else(|| "?".to_string(), |v| v.to_string());
+    let mut lines: Vec<String> = plan
+        .releases
+        .iter()
+        .map(|release| {
+            let current = snapshot
+                .autopilot
+                .get(&release.name)
+                .and_then(|parameter| param_display_value(&parameter.value));
+            format!(
+                "{}: {} → {}",
+                release.name,
+                display(current),
+                display(param_display_value(&release.value))
+            )
+        })
+        .collect();
+
+    let file_name = std::path::Path::new(&snapshot.script_path)
+        .file_name()
+        .map_or_else(
+            || snapshot.script_path.clone(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+    match &plan.script {
+        ScriptAction::Delete => lines.push(format!("Lua script {file_name}: removed")),
+        ScriptAction::Write(_) if !plan.next.parameters.has_motorized_lens() => lines.push(
+            format!("Lua script {file_name}: rewritten for the other motorized cameras"),
+        ),
+        _ => {}
+    }
+    lines
+}
+
+/// Plans forgetting `camera_uuid`: the writes that release what it holds and what happens to
+/// the script it used, or `None` when it has no saved setup.
+pub(crate) fn plan_forget(
+    snapshot: &Snapshot,
+    camera_uuid: Uuid,
+) -> Result<Option<(Vec<PlannedWrite>, ScriptAction)>> {
+    let Some(saved) = snapshot.saved.get(&camera_uuid) else {
+        return Ok(None);
+    };
     let mut planner = Planner::new(&snapshot.autopilot);
     release(&mut planner, snapshot, camera_uuid, &saved.parameters, None);
-    Some(planner.writes)
+    let script = if saved.parameters.has_motorized_lens() {
+        script_without(snapshot, camera_uuid)?
+    } else {
+        ScriptAction::Keep
+    };
+    Ok(Some((planner.releases, script)))
 }
 
 /// Plans applying `config` to `camera_uuid`. With `overwrite`, or for a camera with no saved
@@ -353,6 +469,12 @@ pub(crate) fn plan_apply(
     let written = saved.map_or(&next, |actuators| &actuators.parameters);
     // Mount and script parameters are numbered by the camera id.
     let camera_moved = written.camera_id != next.camera_id;
+    let motorized = next.has_motorized_lens();
+    // A camera turning motorized never wrote its focus, zoom and script setup, or had it
+    // released, so all of it is written again from what it asks for now.
+    let turning_motorized = motorized && !written.has_motorized_lens();
+    // What a fixed-focus lens stops using is released below, like any channel a setup leaves.
+    let releasing = !motorized && written.has_motorized_lens();
 
     let mut planner = Planner::new(&snapshot.autopilot);
     // A reboot an earlier apply asked for may not have happened, and the changes it was for
@@ -369,10 +491,23 @@ pub(crate) fn plan_apply(
             overwrite,
             camera_moved,
         };
-        reboot |= camera::plan(&mut planner, &change);
-        reboot |= script::plan(&mut planner, &change);
-        reboot |= focus::plan(&mut planner, &change)?;
-        reboot |= zoom::plan(&mut planner, &change);
+        if motorized {
+            let incoming_motorized = api::ActuatorsParametersConfig::from(&next);
+            let change = if turning_motorized {
+                Change {
+                    current: &next,
+                    incoming: &incoming_motorized,
+                    overwrite: true,
+                    ..change
+                }
+            } else {
+                change
+            };
+            reboot |= camera::plan(&mut planner, &change);
+            reboot |= script::plan(&mut planner, &change);
+            reboot |= focus::plan(&mut planner, &change)?;
+            reboot |= zoom::plan(&mut planner, &change);
+        }
         reboot |= tilt::plan(&mut planner, &change);
         if let Some(saved) = saved {
             reboot |= release(
@@ -391,27 +526,32 @@ pub(crate) fn plan_apply(
         ..base
     };
 
-    let contents = script::generate_checked_lua_script(&next)?;
-    let is_installed = snapshot
-        .installed_script
-        .as_deref()
-        .is_some_and(|installed| script::lua_scripts_equivalent(installed, &contents));
-    let script = if overwrite || !is_installed {
-        ScriptAction::Write(contents)
-    } else {
-        ScriptAction::Keep
-    };
-    let reload_scripts = overwrite || script != ScriptAction::Keep;
-    reboot |= planner.write_if_needed("SCR_ENABLE".to_string(), ParamType::REAL32(1.0), overwrite);
-    let after_reload = if reboot {
-        Vec::new()
-    } else {
-        // The script parameters of a new camera id were never written.
-        script::param_writes(current, &next_parameters, reload_scripts || camera_moved)
-    };
+    let mut script = ScriptAction::Keep;
+    let mut reload_scripts = false;
+    let mut after_reload = Vec::new();
+    if motorized {
+        let overwrite = overwrite || turning_motorized;
+        let contents = script::generate_checked_lua_script(&next)?;
+        if overwrite || !script_installed(snapshot, &contents) {
+            script = ScriptAction::Write(contents);
+        }
+        reload_scripts = overwrite || script != ScriptAction::Keep;
+        reboot |=
+            planner.write_if_needed("SCR_ENABLE".to_string(), ParamType::REAL32(1.0), overwrite);
+        if !reboot {
+            // The script parameters of a new camera id were never written.
+            after_reload =
+                script::param_writes(current, &next_parameters, reload_scripts || camera_moved);
+        }
+    } else if releasing {
+        script = script_without(snapshot, camera_uuid)?;
+        // The running script only changes once the autopilot reboots.
+        reboot |= script != ScriptAction::Keep;
+    }
 
     Ok(ApplyPlan {
         writes: planner.writes,
+        releases: planner.releases,
         script,
         reload_scripts: reload_scripts && !reboot,
         reboot,
@@ -453,6 +593,7 @@ mod tests {
         for write in plan
             .writes
             .iter()
+            .chain(&plan.releases)
             .chain(&plan.after_reload)
             .chain(&after_reboot)
         {
@@ -643,8 +784,8 @@ mod tests {
             plan.next.parameters.focus_channel,
             api::ServoChannel::SERVO13
         );
+        assert!(names(&plan.releases).contains(&"SERVO10_FUNCTION"));
         let names = names(&plan.writes);
-        assert!(names.contains(&"SERVO10_FUNCTION"));
         assert!(names.contains(&"SERVO13_MIN"));
     }
 
@@ -751,7 +892,7 @@ mod tests {
         for name in ["SERVO13_MIN", "SERVO13_TRIM", "SERVO13_MAX"] {
             assert!(names(&plan.writes).contains(&name), "{name} is not written");
         }
-        assert_eq!(written_value(&plan.writes, "SERVO11_FUNCTION"), Some(0.0));
+        assert_eq!(written_value(&plan.releases, "SERVO11_FUNCTION"), Some(0.0));
     }
 
     #[test]
@@ -767,7 +908,7 @@ mod tests {
         for name in ["CAM2_TYPE", "MNT2_TYPE", "MNT2_PITCH_MIN", "MNT2_PITCH_MAX"] {
             assert!(names.contains(&name), "{name} is not written");
         }
-        assert_eq!(written_value(&plan.writes, "CAM1_TYPE"), Some(0.0));
+        assert_eq!(written_value(&plan.releases, "CAM1_TYPE"), Some(0.0));
         assert!(plan.reboot);
     }
 
@@ -809,7 +950,7 @@ mod tests {
             "SERVO11_FUNCTION",
             ParamType::INT16(33),
         );
-        let writes = plan_forget(&snapshot, CAMERA).unwrap();
+        let (writes, _) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
 
         let mut names = names(&writes);
         names.sort_unstable();
@@ -822,14 +963,17 @@ mod tests {
                 "SERVO16_FUNCTION"
             ]
         );
-        assert!(plan_forget(&snapshot, OTHER).is_none());
+        assert!(plan_forget(&snapshot, OTHER).unwrap().is_none());
     }
 
     #[test]
     fn forgetting_a_camera_leaves_what_another_camera_uses() {
         let snapshot = set_up(set_up(empty(), OTHER), CAMERA);
 
-        assert!(plan_forget(&snapshot, CAMERA).unwrap().is_empty());
+        let (writes, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
+        assert!(writes.is_empty());
+        // The installed script already serves the other camera.
+        assert_eq!(script, ScriptAction::Keep);
     }
 
     #[test]
