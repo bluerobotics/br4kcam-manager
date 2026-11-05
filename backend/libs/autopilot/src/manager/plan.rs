@@ -223,6 +223,28 @@ fn other_cameras(
         .collect()
 }
 
+/// Refuses a setup that puts two of its roles on one channel, as only one function can drive
+/// it. A fixed-focus lens only uses tilt, so its other channels may hold anything.
+fn refuse_shared_channels(next: &ActuatorsParameters) -> Result<()> {
+    let mut channels = vec![("tilt", next.tilt_channel)];
+    if next.has_motorized_lens() {
+        channels.extend([
+            ("focus", next.focus_channel),
+            ("script", next.script_channel),
+            ("zoom", next.zoom_channel),
+        ]);
+    }
+    for (index, (role, channel)) in channels.iter().enumerate() {
+        if let Some((other, _)) = channels[..index].iter().find(|(_, used)| used == channel) {
+            anyhow::bail!(
+                "SERVO{} is set for both {other} and {role}, pick another channel",
+                *channel as u8
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Refuses a setup that gives a channel function or camera type a value other than the one
 /// another camera's setup holds it with, so an apply or a reset never takes over a channel
 /// another camera uses.
@@ -338,6 +360,7 @@ pub(crate) fn plan_apply(
     let mut reboot = overwrite || snapshot.reboot_pending;
 
     if config.parameters.is_some() {
+        refuse_shared_channels(&next)?;
         refuse_taking_other_cameras(snapshot, camera_uuid, &next)?;
         let change = Change {
             current: written,
