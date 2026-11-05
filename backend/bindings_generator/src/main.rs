@@ -10,6 +10,7 @@ use ts_rs::TS;
 
 use br4kcam_commands::{
     Action, CameraControl,
+    firmware::FirmwareUpdate,
     protocol::display::{
         advanced_display::AdvancedParameterSetting, base_display::BaseParameterSetting,
     },
@@ -155,6 +156,7 @@ fn generate_typescript_bindings_for_br4kcam() -> Result<()> {
         Action::export_to_string()?,
         BaseParameterSetting::export_to_string()?,
         AdvancedParameterSetting::export_to_string()?,
+        FirmwareUpdate::export_to_string()?,
     ]
     .join("\n\n");
 
