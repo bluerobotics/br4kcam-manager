@@ -942,6 +942,26 @@ mod tests {
     }
 
     #[test]
+    fn same_camera_ignores_the_firmware_part() {
+        let v16: Uuid = "bc071803-0839-8301-ac36-bc0718030839".parse().unwrap();
+        let v18: Uuid = "bc071803-0839-8801-ae86-bc0718030839".parse().unwrap();
+        let other: Uuid = "bc071802-2c6d-8801-ae86-bc0718022c6d".parse().unwrap();
+        assert!(same_camera(&v16, &v18));
+        assert!(!same_camera(&v18, &other));
+    }
+
+    #[test]
+    fn uuid_from_probe_match_reads_the_endpoint() {
+        let answer = "<a:EndpointReference><a:Address>urn:uuid:bc071803-0839-8301-ac36-bc0718030839</a:Address>";
+        assert_eq!(
+            uuid_from_probe_match(answer),
+            Some("bc071803-0839-8301-ac36-bc0718030839".parse().unwrap())
+        );
+        assert_eq!(uuid_from_probe_match("no uuid here"), None);
+        assert_eq!(uuid_from_probe_match("urn:uuid:short"), None);
+    }
+
+    #[test]
     fn firmware_major_parses_camera_strings() {
         assert_eq!(firmware_major("18.010.U35.5_0054_V16(260305)"), Some(16));
         assert_eq!(firmware_major("18.010.U35.6_0054_V18(261030)"), Some(18));
