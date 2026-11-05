@@ -61,6 +61,11 @@ export type HealthProblemsInput = {
    * meaningful after that — before setup, Welcome alone is the right UX.
    */
   hardwareConfigured?: boolean
+  /**
+   * True when the selected camera has a fixed-focus lens: it only has tilt, so the
+   * script problems (SCR_ENABLE, lua script) do not apply and outage copy names tilt only.
+   */
+  fixedFocus?: boolean
   /** True when the selected camera is configured but absent from MCM discovery. */
   cameraExpectedMissing?: boolean
   /** MCM video stream failure detail when the stream stayed broken. */
@@ -184,7 +189,7 @@ export function collectHealthProblems(input: HealthProblemsInput): HealthProblem
   }
 
   if (health) {
-    const autopilot = autopilotProblem(health)
+    const autopilot = autopilotProblem(health, input.fixedFocus === true)
     if (autopilot) problems.push(autopilot)
 
     // SCR_ENABLE / lua script / saved-param drift are fixed by hardware setup.
@@ -193,6 +198,8 @@ export function collectHealthProblems(input: HealthProblemsInput): HealthProblem
       const drift = parameterDriftProblem(health)
       if (drift) problems.push(drift)
 
+      // Script health covers every camera; the backend reports not_needed and no disabled
+      // scripting once no camera needs the script.
       if (health.autopilot === 'online' && health.lua_scripting_disabled) {
         problems.push({
           kind: 'lua_scripting_disabled',
@@ -340,7 +347,10 @@ function mcmProgressLine(mcmSinceMs: number | undefined, nowMs: number | undefin
   return `Retrying every ${cadence} sec (about ${elapsed} so far)…`
 }
 
-function autopilotProblem(health: SystemHealth): HealthProblem | null {
+function autopilotProblem(health: SystemHealth, fixedFocus: boolean): HealthProblem | null {
+  const actuatorsAre = fixedFocus ? 'Tilt is' : 'Focus, zoom and tilt are'
+  const actuatorsMay = fixedFocus ? 'Tilt may' : 'Focus, zoom and tilt may'
+
   if (health.autopilot === 'unknown') {
     return {
       kind: 'autopilot',
@@ -360,7 +370,7 @@ function autopilotProblem(health: SystemHealth): HealthProblem | null {
         kind: 'autopilot',
         severity: 'error',
         title: 'Autopilot service unavailable',
-        body: '4K Cam Manager cannot configure its MAVLink connection through BlueOS. Focus, zoom and tilt are unavailable. Check that BlueOS is fully started; if this persists, restart BlueOS.',
+        body: `4K Cam Manager cannot configure its MAVLink connection through BlueOS. ${actuatorsAre} unavailable. Check that BlueOS is fully started; if this persists, restart BlueOS.`,
         detail: health.autopilot_detail ?? null,
         progress: 'Waiting for BlueOS to finish starting…',
       }
@@ -371,8 +381,8 @@ function autopilotProblem(health: SystemHealth): HealthProblem | null {
         severity: 'error',
         title: 'MAVLink connection unavailable',
         body: neverReceived
-          ? '4K Cam Manager has not received any MAVLink data from BlueOS yet. Focus, zoom and tilt are unavailable. Check that BlueOS is fully started, then verify MAVLink endpoints are configured.'
-          : 'No MAVLink data is reaching 4K Cam Manager. Focus, zoom and tilt are unavailable. Check BlueOS MAVLink endpoints, then restart BlueOS if needed.',
+          ? `4K Cam Manager has not received any MAVLink data from BlueOS yet. ${actuatorsAre} unavailable. Check that BlueOS is fully started, then verify MAVLink endpoints are configured.`
+          : `No MAVLink data is reaching 4K Cam Manager. ${actuatorsAre} unavailable. Check BlueOS MAVLink endpoints, then restart BlueOS if needed.`,
         detail: health.autopilot_detail ?? null,
         progress: neverReceived
           ? 'Waiting for the first MAVLink data from BlueOS…'
@@ -393,7 +403,7 @@ function autopilotProblem(health: SystemHealth): HealthProblem | null {
         kind: 'autopilot',
         severity: 'error',
         title: 'Autopilot not responding',
-        body: 'The autopilot is heartbeating but not answering our requests. Focus, zoom and tilt may not move. Reboot the autopilot; if it keeps happening, contact support.',
+        body: `The autopilot is heartbeating but not answering our requests. ${actuatorsMay} not move. Reboot the autopilot; if it keeps happening, contact support.`,
         detail: health.autopilot_detail ?? null,
         progress: 'Retrying communication with the autopilot…',
       }
