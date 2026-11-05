@@ -61,7 +61,24 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
 
     camera_ui::start_camera_action(camera_uuid, &action);
 
-    match br4kcam_commands::handle_control(camera_control).await {
+    let result = match &action {
+        // Runs in its own task so a client that disconnects or times out does not stop
+        // following a flash halfway, leaving the overlay up.
+        CameraAction::UpdateFirmware(update) => {
+            let version = update.version.clone();
+            tokio::spawn(async move {
+                br4kcam_commands::firmware::update(camera_uuid, &version, &|message| {
+                    camera_ui::set_reboot_progress(camera_uuid, message)
+                })
+                .await
+            })
+            .await
+            .unwrap_or_else(|error| Err(error.into()))
+        }
+        _ => br4kcam_commands::handle_control(camera_control).await,
+    };
+
+    match result {
         Ok(value) => {
             camera_ui::finish_camera_action(camera_uuid, &action);
             camera_state::emit_camera_control_update(camera_uuid, &action, &value);
