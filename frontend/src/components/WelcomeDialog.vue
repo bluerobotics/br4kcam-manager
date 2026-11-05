@@ -9,18 +9,28 @@
       <p class="text-sm text-white">
         Your camera actuators are not configured yet.
       </p>
+      <p class="text-sm mt-3 text-white">
+        Which lens does this camera have?
+      </p>
       <p class="text-xs opacity-70 mt-3 text-white">
-        Please complete the <b>Hardware Setup</b> section below to enable full functionality.
+        A <b>motorized</b> lens has focus and zoom servos. A <b>fixed-focus</b> lens has neither, so only tilt is set up.
+        You can change this later in the <b>Hardware Setup</b> section below.
       </p>
     </div>
     <template #actions>
-      <div />
+      <BlueButton
+        variant="text"
+        density="compact"
+        @click="goToSetup('FixedFocus')"
+      >
+        Fixed focus
+      </BlueButton>
       <BlueButton
         variant="filled"
         density="compact"
-        @click="goToSetup"
+        @click="goToSetup('Motorized')"
       >
-        Go to setup
+        Motorized focus &amp; zoom
       </BlueButton>
     </template>
   </StatusDialogShell>
@@ -29,6 +39,7 @@
 <script setup lang="ts">
 import { BlueButton } from '@bluerobotics/bluevue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
+import type { LensType } from '@/bindings/autopilot'
 
 const props = defineProps<{
   show: boolean
@@ -36,14 +47,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'go-to-setup'): void
+  (e: 'go-to-setup', lens: LensType): void
 }>()
 
 const close = () => {
   emit('close')
 }
 
-const goToSetup = () => {
-  emit('go-to-setup')
+const goToSetup = (lens: LensType) => {
+  emit('go-to-setup', lens)
 }
 </script>
