@@ -310,6 +310,7 @@ pub(crate) fn emit_camera_control_update(
         }
         CameraAction::SetRecommendedCameraSettings
         | CameraAction::SetH265
+        | CameraAction::UpdateFirmware(_)
         | CameraAction::Restart => {
             tokio::spawn(reconcile_snapshot(camera_uuid).instrument(Span::current()));
             return;
