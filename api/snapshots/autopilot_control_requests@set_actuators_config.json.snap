@@ -9,6 +9,7 @@ ActuatorsControl {
         ActuatorsConfig {
             parameters: Some(
                 ActuatorsParametersConfig {
+                    lens: None,
                     camera_id: Some(
                         CAM1,
                     ),

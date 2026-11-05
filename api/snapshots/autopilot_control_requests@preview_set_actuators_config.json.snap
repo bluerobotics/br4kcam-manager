@@ -1,0 +1,45 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<ActuatorsControl>(path)"
+input_file: api/requests/autopilot_control/preview_set_actuators_config.json
+---
+ActuatorsControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: PreviewSetActuatorsConfig(
+        ActuatorsConfig {
+            parameters: Some(
+                ActuatorsParametersConfig {
+                    lens: Some(
+                        FixedFocus,
+                    ),
+                    camera_id: None,
+                    focus_channel: None,
+                    focus_channel_min: None,
+                    focus_channel_trim: None,
+                    focus_channel_max: None,
+                    focus_margin_gain: None,
+                    script_function: None,
+                    script_channel: None,
+                    script_channel_min: None,
+                    script_channel_trim: None,
+                    script_channel_max: None,
+                    enable_focus_and_zoom_correlation: None,
+                    zoom_channel: None,
+                    zoom_channel_min: None,
+                    zoom_channel_trim: None,
+                    zoom_channel_max: None,
+                    tilt_channel: None,
+                    tilt_channel_min: None,
+                    tilt_channel_trim: None,
+                    tilt_channel_max: None,
+                    tilt_channel_reversed: None,
+                    tilt_mnt_type: None,
+                    tilt_mnt_pitch_min: None,
+                    tilt_mnt_pitch_max: None,
+                },
+            ),
+            closest_points: None,
+            furthest_points: None,
+        },
+    ),
+}

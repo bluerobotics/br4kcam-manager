@@ -5,5 +5,7 @@ input_file: api/requests/autopilot_control/force_reset_actuators_config.json
 ---
 ActuatorsControl {
     camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
-    action: ForceResetActuatorsConfig,
+    action: ForceResetActuatorsConfig(
+        None,
+    ),
 }
