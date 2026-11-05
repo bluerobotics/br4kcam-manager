@@ -1,4 +1,4 @@
-import { newerFirmware } from './firmwareVersion'
+import { newerFirmware, sameCamera } from './firmwareVersion'
 
 export function runFirmwareVersionSelfCheck(): void {
   const v16 = '18.010.U35.5_0054_V16(260305)'
@@ -16,6 +16,13 @@ export function runFirmwareVersionSelfCheck(): void {
     if (actual !== expected) {
       throw new Error(`firmwareVersion: ${current} vs ${available} gave ${actual}, expected ${expected}`)
     }
+  }
+  const cam = 'bc071803-0839-8301-ac36-bc0718030839'
+  if (!sameCamera(cam, 'bc071803-0839-8801-ae86-bc0718030839')) {
+    throw new Error('firmwareVersion: same MAC with another firmware must be the same camera')
+  }
+  if (sameCamera(cam, 'bc071802-2c6d-8801-ae86-bc0718022c6d') || sameCamera(cam, 'garbage')) {
+    throw new Error('firmwareVersion: another MAC must be another camera')
   }
   console.log('firmwareVersion self-check ok')
 }
