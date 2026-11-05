@@ -656,6 +656,27 @@ mod tests {
         retain_known_cameras(&keep);
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn failed_background_checks_do_not_toast() {
+        let camera_uuid = Uuid::from_u128(0x9999_aaaa_bbbb_cccc);
+        fail_camera_action(camera_uuid, &CameraAction::GetFirmwareUpdates, "refused");
+        fail_camera_action(camera_uuid, &CameraAction::GetH265Support, "refused");
+        assert_eq!(get(camera_uuid).warning_toast, None);
+
+        fail_camera_action(camera_uuid, &CameraAction::GetImageAdjustment, "refused");
+        assert!(get(camera_uuid).warning_toast.is_some());
+
+        let keep = {
+            ui().lock()
+                .unwrap()
+                .keys()
+                .copied()
+                .filter(|id| *id != camera_uuid)
+                .collect()
+        };
+        retain_known_cameras(&keep);
+    }
+
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn default_setup_result_replaces_loading_and_is_dismissable() {
         let camera_uuid = Uuid::from_u128(0x5555_6666_7777_8888);
