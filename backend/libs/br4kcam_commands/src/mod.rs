@@ -67,6 +67,12 @@ pub enum Action {
     /// Important: This is a wrapper, not part of the camera protocol
     #[serde(rename = "setH265")]
     SetH265,
+    /// Important: This is a wrapper, not part of the camera protocol
+    #[serde(rename = "getFirmwareUpdates")]
+    GetFirmwareUpdates,
+    /// Important: This is a wrapper, not part of the camera protocol
+    #[serde(rename = "updateFirmware")]
+    UpdateFirmware(firmware::FirmwareUpdate),
 }
 
 /// Outcome of one reachability probe while waiting for a camera reboot.
@@ -106,6 +112,13 @@ fn control_inner(
             }
             Action::SetH265 => {
                 return apply_h265(camera_control.camera_uuid).await;
+            }
+            Action::GetFirmwareUpdates => {
+                return firmware::get_updates(camera_control.camera_uuid).await;
+            }
+            Action::UpdateFirmware(update) => {
+                return firmware::update(camera_control.camera_uuid, &update.version, &|_| {})
+                    .await;
             }
             _ => (),
         }
