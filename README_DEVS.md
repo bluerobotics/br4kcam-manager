@@ -233,3 +233,62 @@ The ISO stops (100 to 204800) map to analog and digital gain through `ISO_GAINS`
 `routes/v1/pro.rs`, measured with the calibration tool below; the measurements are in
 [tools/iso_calibration/data/](tools/iso_calibration/data/).
 
+### ISO calibration
+
+[tools/iso_calibration/calibrate_iso.py](tools/iso_calibration/calibrate_iso.py) measures
+the gain of each ISO stop and prints `ISO_GAINS` ready to paste. Halving the exposure time
+removes exactly one stop of light, so the gain that brings the image back to the same
+brightness adds exactly one stop. It needs GStreamer (`gst-launch-1.0`) and SciPy (pinned in
+its `requirements.txt`, like the zoom calibration's), and talks to a running 4K Cam Manager.
+
+The gain is analog gain A (0 to ~8 do nothing, then the gain about doubles with A) and
+digital gain D on top, in levels of 4 (0 to 7 do nothing) by amounts not known exactly
+(D=8 is about 1.9x). Together they reach ~11.85 stops (~71 dB); the camera's Max SysGain
+(`max_sys_gain`) does not limit them, it only caps auto exposure's gain. The search
+assumes no gain law: analog gain at the current digital level (a guess at twice the
+previous stop's gain, then Brent's method on log(gain)), else the lowest digital level whose
+full analog gain reaches the target, then analog gain at that level. Each stop matches as
+finely as the analog steps allow, in about five to fifteen measurements.
+
+It measures a centered square (`--crop`, half the image height by default) of the camera's
+substream, which it first sets to H.264 640x480 at 30 fps if it is not (MJPEG does not work:
+the camera sends whole JPEGs inside RTP, which GStreamer drops; the camera caps this stream
+at 8192 kbps); `--rtsp` measures another stream instead. GStreamer, with a one-frame leaky
+queue, so a reading is always the latest picture (ffmpeg fell minutes behind on 4K). It first
+times how long an ISO step takes to show on the stream (~0.3 s), then gives each
+measurement `--step-seconds` (use 6: after every change the image creeps ~1.5 % for 6 to
+8 s), averaging every frame after that delay. The camera's stream connection dies when a
+darkening change comes within ~2 s of a brightening one, so the tool waits 3 s before such
+a change. When the stream still freezes (no frame for 1 s), it reconnects and measures again.
+
+1. Point the camera at a flat, evenly lit target (gray card, white wall) lit only by a
+   steady lamp: a DC LED, not mains-powered or PWM-dimmed, and no daylight, which fades
+   during a run. Let the lamp warm up (LEDs dim for a few minutes after a change). Keep the
+   camera, target and lamp still during each lap.
+2. Every reference must be mid-gray, luma 100 to 140: the gain a stop needs depends on it
+   (ISO 800 measured A=40 at luma ~120 but 55 at 37). The tool shows the live reading and
+   waits, at the start and between laps, until it holds steady in range.
+3. The shutters only span 1/50 to 1/4000 s (1/8000, 1/10000 and 1/100000 all expose like
+   ~1/5600 s, so they are left out): 6 stops from 1/50, while the gain spans ~12. When the
+   shutters run out, the tool asks to dim the light about that many stops (ND filter, lamp
+   farther away or dimmed; the amount needs no precision since the reference is measured
+   again). A full calibration from `--base-shutter 50` takes two laps. Ctrl+C at a light
+   prompt keeps the stops found so far, and `--start ISO:A:D` resumes from a stop.
+4. Run it, and paste the table it prints into `pro.rs`:
+
+```bash
+cd tools/iso_calibration
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
+.venv/bin/python calibrate_iso.py \
+  --manager http://192.168.2.2/extensionv2/4kcammanager --camera <uuid> --base-shutter 50 --step-seconds 6
+```
+
+While it runs, it puts every image setting in a fixed, manual state: no denoise, dehaze,
+WDR, HLC, backlight compensation, slow shutter, anti-flicker, IR lamps or day/night switch;
+brightness, contrast, saturation, sharpness, hue and gamma at 128; white balance held at its
+current gains. It restores every setting it changed at the end, also on Ctrl+C or failure
+(the substream setting stays). It stops when halving the exposure does not darken the image
+(something still adapts it). The top stop is reached when no gain can match, and every
+reading goes to `iso_calibration.csv`. Low analog gains move in coarse steps (A 9 to 11 look
+alike), so the low stops match within a few percent, the rest within about 1 %. A full run
+takes about 25 minutes. `--self-test` checks the search logic without a camera.
