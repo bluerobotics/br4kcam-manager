@@ -183,7 +183,37 @@ pub enum BaseExposureTimeValue {
     _4000 = 4000,
     _8000 = 8000,
     _10000 = 10000,
-    _34464 = 34464,
+    /// 1/100000 s. The camera takes it as 34464: 100000 truncated to 16 bits.
+    _100000 = 34464,
+}
+
+impl BaseExposureTimeValue {
+    /// Every exposure the camera takes, longest first.
+    pub const ALL: [Self; 15] = [
+        Self::_12,
+        Self::_25,
+        Self::_30,
+        Self::_50,
+        Self::_60,
+        Self::_100,
+        Self::_200,
+        Self::_400,
+        Self::_800,
+        Self::_1000,
+        Self::_2000,
+        Self::_4000,
+        Self::_8000,
+        Self::_10000,
+        Self::_100000,
+    ];
+
+    /// The `x` of the 1/x s exposure, which is not always the number sent to the camera.
+    pub fn denominator(&self) -> u32 {
+        match self {
+            Self::_100000 => 100_000,
+            other => other.clone() as u32,
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
@@ -254,6 +284,16 @@ mod tests {
     use utils::deserialize;
 
     use super::*;
+
+    #[test]
+    fn exposure_times_are_all_listed_with_their_real_duration() {
+        let wire: Vec<BaseExposureTimeValue> = (0..=u32::from(u16::MAX))
+            .filter_map(|value| deserialize(&value.to_string()).ok())
+            .collect();
+        assert_eq!(wire, BaseExposureTimeValue::ALL.to_vec());
+        assert_eq!(BaseExposureTimeValue::_100000.denominator(), 100_000);
+        assert_eq!(BaseExposureTimeValue::_1000.denominator(), 1000);
+    }
 
     #[test]
     fn setting_some_parameters() {

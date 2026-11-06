@@ -90,7 +90,7 @@ export type BaseAutoWhiteBalanceSceneValue = 0 /* Scene1 */ | 1 /* Scene2 */;
 
 export type BaseExposureModeValue = 0 /* Auto */ | 1 /* Manual */;
 
-export type BaseExposureTimeValue = 12 /* _12 */ | 25 /* _25 */ | 30 /* _30 */ | 50 /* _50 */ | 60 /* _60 */ | 100 /* _100 */ | 200 /* _200 */ | 400 /* _400 */ | 800 /* _800 */ | 1000 /* _1000 */ | 2000 /* _2000 */ | 4000 /* _4000 */ | 8000 /* _8000 */ | 10000 /* _10000 */ | 34464 /* _34464 */;
+export type BaseExposureTimeValue = 12 /* _12 */ | 25 /* _25 */ | 30 /* _30 */ | 50 /* _50 */ | 60 /* _60 */ | 100 /* _100 */ | 200 /* _200 */ | 400 /* _400 */ | 800 /* _800 */ | 1000 /* _1000 */ | 2000 /* _2000 */ | 4000 /* _4000 */ | 8000 /* _8000 */ | 10000 /* _10000 */ | 34464 /* _100000 */;
 
 export type BaseFrameTurboValue = 0 /* Close */ | 1 /* HighFrameRates */ | 2 /* UltraHighFrameRates */;
 
