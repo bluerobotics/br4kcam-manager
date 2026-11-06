@@ -618,6 +618,7 @@ watchEffect(() => {
   // the viewport in the units the zoomed layout is actually drawn in.
   style.setProperty('--viewport-width', `${viewportWidth.value / scale}px`)
   style.setProperty('--viewport-height', `${viewportHeight.value / scale}px`)
+  style.setProperty('--zoom', String(scale))
 })
 
 const configButtons = [
@@ -1111,6 +1112,7 @@ onUnmounted(() => {
   document.documentElement.style.zoom = ''
   document.documentElement.style.removeProperty('--viewport-width')
   document.documentElement.style.removeProperty('--viewport-height')
+  document.documentElement.style.removeProperty('--zoom')
   stopHealthProblemsNowTick()
   if (connectionPhaseTimer != null) {
     clearTimeout(connectionPhaseTimer)
