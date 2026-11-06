@@ -20,6 +20,7 @@ use axum::{
 use br4kcam_api::{
     CameraStateEvent, ConnectionStats, SystemHealth, WsClientMessage, WsEvent, WsRequest,
     WsResponse, events,
+    pro::{ProCapabilities, ProSettings, ProState},
 };
 use br4kcam_commands::CameraControl;
 use br4kcam_manager::web::routes::{
@@ -265,6 +266,14 @@ fn wire_types() {
                 types.visit::<ConnectionStats>();
             })
         );
+        assert_snapshot!(
+            "types_pro",
+            declarations(&numeric_enums, |types| {
+                types.visit::<ProState>();
+                types.visit::<ProSettings>();
+                types.visit::<ProCapabilities>();
+            })
+        );
     });
 }
 
@@ -382,6 +391,11 @@ fn camera_control_requests() {
 #[test]
 fn autopilot_control_requests() {
     assert_recorded_requests::<ActuatorsControl>("autopilot_control");
+}
+
+#[test]
+fn pro_settings_requests() {
+    assert_recorded_requests::<ProSettings>("pro_settings");
 }
 
 #[test]
