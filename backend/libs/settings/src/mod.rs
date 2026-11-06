@@ -23,6 +23,7 @@ pub enum RawSettingsData {
 pub trait SettingsDataImpl: std::fmt::Debug + Send + Sync {
     fn get_actuators(&self) -> &IndexMap<Uuid, CameraActuatorsSettings>;
     fn get_actuators_mut(&mut self) -> &mut IndexMap<Uuid, CameraActuatorsSettings>;
+    fn get_program_max_exposure_mut(&mut self) -> &mut IndexMap<Uuid, u32>;
 
     fn to_raw(&self) -> RawSettingsData;
 }
