@@ -14,6 +14,17 @@
   max-width: min(calc(var(--viewport-width, 92vw) * 0.92), 624px);
 }
 
+/* floating-ui places BlueVue's menus and tooltips from on-screen rects, but the cockpit-mode zoom
+   scales its fixed position a second time, dropping every menu toward the top-left corner. The
+   popover undoes the zoom so it is placed in screen pixels, and its content zooms back to size. */
+.bluevue-popover {
+  zoom: calc(1 / var(--zoom, 1));
+}
+
+.bluevue-popover > * {
+  zoom: var(--zoom, 1);
+}
+
 /* A heavier frosting than .bluevue-panel's own, over a lighter backdrop: the status dialogs stand
    in front of the camera scene, and the kit's defaults hide too much of it. */
 .glass-dialog .bluevue-panel {
