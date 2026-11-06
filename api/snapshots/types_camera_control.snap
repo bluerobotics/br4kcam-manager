@@ -149,6 +149,8 @@ export type CameraControl = {
 } | {
     "action": "getImageAdjustmentEx"
 } | {
+    "action": "getISPInfo"
+} | {
     "action": "getVencConf",
     "json": VideoParameterSettings
 } | {
