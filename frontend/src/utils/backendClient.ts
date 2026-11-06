@@ -7,8 +7,10 @@ import type {
   WsResponse,
 } from '@/bindings/br4kcam_api'
 
+type RequestMethod = 'GET' | 'POST' | 'PATCH'
+
 type PendingRequest = {
-  method: 'GET' | 'POST'
+  method: RequestMethod
   path: string
   body?: unknown
   resolve: (body: unknown) => void
@@ -73,12 +75,12 @@ function makeRequestError(status: number, body: unknown): BackendRequestError {
   return error
 }
 
-function isRetriableConnectionError(error: unknown, method: 'GET' | 'POST', sent: boolean): boolean {
+function isRetriableConnectionError(error: unknown, method: RequestMethod, sent: boolean): boolean {
   if (!(error instanceof Error)) return false
   const message = error.message
 
-  // Never retry after a POST may have reached the backend.
-  if (method === 'POST' && sent) return false
+  // Never retry a change that may have reached the backend.
+  if (method !== 'GET' && sent) return false
 
   // Timeouts after send are ambiguous for every method.
   if (message === 'Request timed out' && sent) return false
@@ -472,7 +474,7 @@ class BackendClient {
     }
   }
 
-  private sendRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  private sendRequest<T>(method: RequestMethod, path: string, body?: unknown): Promise<T> {
     const id = this.nextId++
     const request: WsRequest = { id, method, path }
     if (body !== undefined) {
@@ -511,7 +513,7 @@ class BackendClient {
     })
   }
 
-  async request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  async request<T>(method: RequestMethod, path: string, body?: unknown): Promise<T> {
     let lastError: unknown
     // Deliberately sticky across attempts: once a POST may have reached the backend,
     // never retry it (non-idempotent camera/autopilot control).
