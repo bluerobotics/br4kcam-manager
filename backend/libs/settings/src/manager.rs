@@ -35,7 +35,10 @@ impl Settings {
     ) -> Result<Self> {
         let settings = Self {
             path,
-            inner: Box::new(SettingsDataV1 { actuators }),
+            inner: Box::new(SettingsDataV1 {
+                actuators,
+                program_max_exposure: IndexMap::default(),
+            }),
         };
 
         settings.save().await?;
@@ -162,6 +165,10 @@ impl Settings {
         self.inner.get_actuators_mut()
     }
 
+    pub fn get_program_max_exposure_mut(&mut self) -> &mut IndexMap<Uuid, u32> {
+        self.inner.get_program_max_exposure_mut()
+    }
+
     pub fn to_raw(&self) -> RawSettingsData {
         self.inner.to_raw()
     }
@@ -214,6 +221,7 @@ pub async fn clear() -> Result<()> {
     let mut guard = manager.write().await;
 
     guard.settings.get_actuators_mut().clear();
+    guard.settings.get_program_max_exposure_mut().clear();
     guard.settings.save().await
 }
 
