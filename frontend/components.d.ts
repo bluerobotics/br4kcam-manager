@@ -15,6 +15,8 @@ declare module 'vue' {
     H265Suggestion: typeof import('./src/components/H265Suggestion.vue')['default']
     HealthDiagnostics: typeof import('./src/components/HealthDiagnostics.vue')['default']
     ImageTab: typeof import('./src/components/ImageTab.vue')['default']
+    ProControls: typeof import('./src/components/ProControls.vue')['default']
+    ProListControl: typeof import('./src/components/ProListControl.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SpinningLogo: typeof import('./src/components/common/SpinningLogo.vue')['default']
