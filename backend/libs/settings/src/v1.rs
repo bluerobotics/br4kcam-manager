@@ -7,6 +7,10 @@ use crate::{RawSettingsData, SettingsDataImpl, v0::SettingsDataV0};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsDataV1 {
     pub actuators: IndexMap<Uuid, CameraActuatorsSettings>,
+    /// PRO Program's shutter limit (the camera's raw `max_exposure`) per camera while it is in
+    /// Manual, which lifts the limit; put back when Program returns. Absent from older files.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub program_max_exposure: IndexMap<Uuid, u32>,
     // todo: pub image: IndexMap<Uuid, CameraImageSettings>,
 }
 
@@ -176,6 +180,7 @@ impl From<SettingsDataV0> for SettingsDataV1 {
     fn from(_v1: SettingsDataV0) -> Self {
         SettingsDataV1 {
             actuators: IndexMap::default(),
+            program_max_exposure: IndexMap::default(),
         }
     }
 }
@@ -187,6 +192,10 @@ impl SettingsDataImpl for SettingsDataV1 {
 
     fn get_actuators_mut(&mut self) -> &mut IndexMap<Uuid, CameraActuatorsSettings> {
         &mut self.actuators
+    }
+
+    fn get_program_max_exposure_mut(&mut self) -> &mut IndexMap<Uuid, u32> {
+        &mut self.program_max_exposure
     }
 
     fn to_raw(&self) -> RawSettingsData {
@@ -253,5 +262,25 @@ mod tests {
             panic!("expected V1 settings");
         };
         assert_eq!(reloaded.actuators[0].parameters.lens, LensType::FixedFocus);
+        // Files without kept shutter limits load without any and save without the key.
+        assert!(reloaded.program_max_exposure.is_empty());
+        assert!(!saved.contains("program_max_exposure"));
+    }
+
+    #[test]
+    fn kept_shutter_limits_survive_a_reload() {
+        let RawSettingsData::V1(mut settings) =
+            serde_json::from_str::<RawSettingsData>(SETTINGS_WITHOUT_LENS).unwrap()
+        else {
+            panic!("expected V1 settings");
+        };
+        settings.program_max_exposure.insert(Uuid::nil(), 250);
+        let saved = serde_json::to_string(&settings.to_raw()).unwrap();
+        let RawSettingsData::V1(reloaded) =
+            serde_json::from_str::<RawSettingsData>(&saved).unwrap()
+        else {
+            panic!("expected V1 settings");
+        };
+        assert_eq!(reloaded.program_max_exposure.get(&Uuid::nil()), Some(&250));
     }
 }
