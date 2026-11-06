@@ -99,7 +99,12 @@ pub struct BaseParameterSetting {
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
 #[tsync]
 #[repr(u32)]
+/// Exposures the camera offers (its web UI's list), as the `x` of 1/x s.
 pub enum BaseMaxExposureValue {
+    _1 = 1,
+    _2 = 2,
+    _3 = 3,
+    _6 = 6,
     _12 = 12,
     _25 = 25,
     #[default]
@@ -107,13 +112,21 @@ pub enum BaseMaxExposureValue {
     _50 = 50,
     _60 = 60,
     _100 = 100,
+    _150 = 150,
     _200 = 200,
+    _250 = 250,
+    _300 = 300,
+    _350 = 350,
     _400 = 400,
+    _600 = 600,
     _800 = 800,
     _1000 = 1000,
     _2000 = 2000,
     _4000 = 4000,
     _8000 = 8000,
+    _10000 = 10000,
+    /// 1/100000 s. The camera takes it as 34464: 100000 truncated to 16 bits.
+    _100000 = 34464,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
@@ -167,7 +180,12 @@ pub enum BaseExposureModeValue {
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
 #[tsync]
 #[repr(u32)]
+/// Exposures the camera offers (its web UI's list), as the `x` of 1/x s.
 pub enum BaseExposureTimeValue {
+    _1 = 1,
+    _2 = 2,
+    _3 = 3,
+    _6 = 6,
     _12 = 12,
     _25 = 25,
     _30 = 30,
@@ -175,8 +193,13 @@ pub enum BaseExposureTimeValue {
     #[default]
     _60 = 60,
     _100 = 100,
+    _150 = 150,
     _200 = 200,
+    _250 = 250,
+    _300 = 300,
+    _350 = 350,
     _400 = 400,
+    _600 = 600,
     _800 = 800,
     _1000 = 1000,
     _2000 = 2000,
@@ -189,15 +212,24 @@ pub enum BaseExposureTimeValue {
 
 impl BaseExposureTimeValue {
     /// Every exposure the camera takes, longest first.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 24] = [
+        Self::_1,
+        Self::_2,
+        Self::_3,
+        Self::_6,
         Self::_12,
         Self::_25,
         Self::_30,
         Self::_50,
         Self::_60,
         Self::_100,
+        Self::_150,
         Self::_200,
+        Self::_250,
+        Self::_300,
+        Self::_350,
         Self::_400,
+        Self::_600,
         Self::_800,
         Self::_1000,
         Self::_2000,
