@@ -883,13 +883,18 @@ const frameTurboOptions = enumToOptions(BaseFrameTurboValue)
 const sceneModeOptions = enumToOptions(AdvancedDisplaySceneModeValue)
 const autoExposureStrategyModeOptions = enumToOptions(BaseAutoExposureStrategyModeValue)
 const exposureModeOptions = enumToOptions(BaseExposureModeValue)
+// Named by the variant, not the value: 1/100000 s goes to the camera as 34464.
+const exposureLabel = (variant: string): string => {
+  const denominator = variant.slice(1)
+  return denominator === '1' ? '1 s' : `1/${denominator} s`
+}
 const exposureTimeOptions = enumToOptions(BaseExposureTimeValue).map(option => ({
   ...option,
-  name: `1/${option.value} s`
+  name: exposureLabel(BaseExposureTimeValue[option.value])
 }));
 const maxExposureOptions = enumToOptions(BaseMaxExposureValue).map(option => ({
   ...option,
-  name: `1/${option.value} s`
+  name: exposureLabel(BaseMaxExposureValue[option.value])
 }));
 const autoWhiteBalanceModeOptions = enumToOptions(BaseAutoWhiteBalanceModeValue)
 const autoWhiteBalanceSceneOptions = enumToOptions(BaseAutoWhiteBalanceSceneValue)
