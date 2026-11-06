@@ -151,3 +151,85 @@ extension moves the camera's saved hardware setup to the new UUID and tells the 
 Other projects depend on this API, and [api/](api/README.md) pins it: `cargo test` fails
 when it changes by accident. Read [api/README.md](api/README.md) before changing routes or
 wire types.
+
+### PRO controls
+
+`/v1/pro/{camera_uuid}` exposes traditional camera controls for integrators, mapped onto
+the camera and autopilot controls in the backend (types in `br4kcam_api::pro`):
+
+- `GET` the current state; `PATCH` any of `mode`, `shutter`, `iso`, `max_iso`,
+  `max_shutter`, `exposure_compensation` (EV), `white_balance`, `focus` (%), `zoom`
+  (magnification) and `tilt` (degrees), and it answers the new state. Modes:
+  - `program`: the camera picks shutter and ISO, within `max_iso` and `max_shutter`.
+  - `shutter` (shutter priority): `shutter` is set, the camera picks ISO within `max_iso`.
+    It is the camera's manual exposure with its gain switches (`manual_AGain_enable`,
+    `manual_DGain_enable`) off, so auto exposure drives the gain alone.
+  - `manual`: `shutter` and `iso` are set.
+
+  The camera has no ISO priority (whenever its auto exposure is off, the shutter is manual).
+  A value the mode does not take is a 400: a `shutter` in `program`, an `iso` outside
+  `manual`, `max_iso` and `exposure_compensation` in `manual`, `max_shutter` outside
+  `program`. Every shutter the camera takes is accepted; `shutter_calibrated` in the
+  capabilities lists the ones that expose what they say (1/30 to 1/10000 s): longer ones are
+  held to the frame time at 30 fps, and 1/100000 s exposes no shorter than ~1/33000 s.
+  Switching mode turns the camera's `auto_iris` off (the lens has no driven iris; on, it
+  holds every exposure to 200 µs or more).
+- `exposure_compensation` shifts the brightness auto exposure aims for, in `program` and
+  `shutter` (the camera's `blc_level`, -2 to +1.5 EV in half stops, `EXPOSURE_COMPENSATION`
+  in `pro.rs`, measured from the exposure auto exposure settled on at each level).
+- `max_iso` is the highest ISO the camera may pick, one limit for `program` and `shutter`:
+  an ISO up to 204800 or `"full"` (the camera's full gain, past the calibrated ISOs, shown
+  as H). It is kept in the camera's `max_sys_gain`, which `manual` does not touch; its table
+  (`MAX_ISO_GAINS` in `pro.rs`) was read with the lens covered, where auto exposure sits at
+  its gain ceiling. `max_sys_gain` does not hold shutter priority, so there the limit is also
+  written as the camera's `auto_AGain_max` and `auto_DGain_max` (`shutter_gain_caps`, checked
+  on the camera at ISO 6400, 51200 and 204800); entering `shutter` with no limit sets ISO
+  51200, since uncapped it climbs to camera ISO 1.9 M in the dark. `program` and `manual` set
+  those two to 255 instead: they would stop auto exposure first and also clamp the manual
+  gains.
+- `max_shutter` is the longest shutter `program` may pick (the camera's `max_exposure`, 1/30
+  to 1/4000 s): in dim light auto exposure holds the shutter there and raises ISO. The camera
+  holds the shutter of its manual exposure (`manual` and `shutter`) to the `max_exposure` it
+  had when that was entered, so leaving `program` first sets it to 1 s in a request of its own
+  (in the same request it does not work). The manager keeps the `program` limit meanwhile, in
+  its settings file so it survives a restart, and puts it back when `program` returns, unless
+  that change sets its own; with none kept, `program` gets 1/60 s.
+- What the camera is using now comes from its `getISPInfo`, read only: `shutter` in
+  `program`, `iso` in `program` and `shutter`, `exposure_warning` (`too_dark` or
+  `too_bright` when auto exposure is off its target by more than its error ever reads on
+  target) and `color_temperature` (K) in every mode. Its ISO is 100 x the gain it applies,
+  which is not what the image shows at high gain (up to ~0.6 stop apart), so it is converted
+  to the light-calibrated scale of `ISO_GAINS` (`CAMERA_ISO` in `pro.rs`); above ISO 204800
+  that is extrapolated. Its shutter is measured in sensor lines of 14.8 µs (1/4000 reads
+  1/3968); the UI shows picked values in third stops. Its exposure time only follows auto
+  exposure, so `manual` and `shutter` report the shutter they set.
+- Exposure is slew-rate limited in the backend, for every client: `shutter`, `iso`,
+  `exposure_compensation`, `max_iso` and `max_shutter` move toward what was asked by at most
+  one stop per step (one value per step; a list with a gap wider than a stop, as `max_iso`
+  from 100 to 6400, moves one entry), a step per 250 ms at most, about how long a change
+  takes to reach the video. A change during a ramp retargets it, and the state reports
+  where it is going. A change of mode first lands at the shutter and ISO the camera uses
+  now, then ramps to the values it asks for; a `mode` equal to the current one is no change
+  of mode. Unramped jumps of 8 to 10 stops froze a V16 camera's stream for 26 s and dropped
+  its connection; ramped, both cameras streamed on (tested on V16 and V18). White balance is
+  written at once. Changes to one camera are applied one at a time.
+- `GET .../capabilities` lists the accepted values, and the range of each actuator the
+  camera has set up. The aperture is fixed: on the camera, `auto_iris` and `irisLevel` were
+  swept with exposure locked and the image did not change.
+- `white_balance` modes: `auto` (tuned for a water `scene`), `manual` (red, green and blue
+  gains, 0 to 255) and `temperature` (`kelvin`, 1500 to 15000 K, `white_balance_kelvin` in
+  the capabilities): the camera computes the gains for light of that colour temperature from
+  its calibration (`auto_awb` 2 and `wb_temp`; checked on V16 and V18). Left out, `kelvin`
+  keeps the camera's, or 5500 K when it holds none in range. Manual and temperature hold the
+  scene `auto` returns to. White balance is written at once, never ramped.
+- `POST .../white_balance/one_push` starts a one-push white balance (202).
+
+```bash
+curl -X PATCH localhost:8080/v1/pro/$UUID -H 'Content-Type: application/json' \
+  -d '{"mode":"manual","shutter":"1/250","iso":800}'
+```
+
+The ISO stops (100 to 204800) map to analog and digital gain through `ISO_GAINS` in
+`routes/v1/pro.rs`, measured with the calibration tool below; the measurements are in
+[tools/iso_calibration/data/](tools/iso_calibration/data/).
+
