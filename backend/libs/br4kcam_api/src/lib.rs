@@ -18,6 +18,8 @@ use serde_json::Value;
 use ts_rs::TS;
 use uuid::Uuid;
 
+pub mod pro;
+
 /// Reachability of one camera from the 4K Cam Manager.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, TS)]
 #[serde(rename_all = "snake_case")]
