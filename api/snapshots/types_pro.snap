@@ -1,0 +1,79 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "declarations(&numeric_enums, |types|\n{\n    types.visit::<ProState>(); types.visit::<ProSettings>();\n    types.visit::<ProCapabilities>();\n})"
+---
+export type Aperture = "fixed";
+
+export type ExposureMode = "program" | "shutter" | "manual";
+
+export type ExposureWarning = "too_dark" | "too_bright";
+
+export type FullGain = "full";
+
+export type MaxIso = number | FullGain;
+
+export type ProCapabilities = {
+    modes: Array<ExposureMode>,
+    shutter: Array<string>,
+    shutter_calibrated: Array<string>,
+    iso: Array<number>,
+    max_iso: Array<MaxIso>,
+    max_shutter: Array<string>,
+    exposure_compensation: Array<number>,
+    white_balance_scenes: Array<WhiteBalanceScene>,
+    white_balance_kelvin: Range,
+    focus: Range | null,
+    zoom: Range | null,
+    tilt: Range | null,
+    aperture: Aperture,
+};
+
+export type ProSettings = {
+    mode?: ExposureMode,
+    shutter?: string,
+    iso?: number,
+    max_iso?: MaxIso,
+    max_shutter?: string,
+    exposure_compensation?: number,
+    white_balance?: WhiteBalance,
+    focus?: number,
+    zoom?: number,
+    tilt?: number,
+};
+
+export type ProState = {
+    mode: ExposureMode,
+    shutter: string | null,
+    iso: number | null,
+    max_iso: MaxIso | null,
+    max_shutter: string | null,
+    exposure_compensation: number | null,
+    exposure_warning: ExposureWarning | null,
+    color_temperature: number | null,
+    white_balance: WhiteBalance,
+    focus: number | null,
+    zoom: number | null,
+    tilt: number | null,
+};
+
+export type Range = {
+    min: number,
+    max: number,
+};
+
+export type WhiteBalance = {
+    "mode": "auto",
+    scene?: WhiteBalanceScene,
+} | {
+    "mode": "manual",
+    red?: number,
+    green?: number,
+    blue?: number,
+    scene?: WhiteBalanceScene,
+} | {
+    "mode": "temperature",
+    kelvin?: number,
+    scene?: WhiteBalanceScene,
+};
+
+export type WhiteBalanceScene = "green_water" | "blue_water";

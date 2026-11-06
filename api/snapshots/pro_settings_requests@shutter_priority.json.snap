@@ -1,0 +1,27 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/pro_settings/shutter_priority.json
+---
+ProSettings {
+    mode: Some(
+        Shutter,
+    ),
+    shutter: Some(
+        "1/250",
+    ),
+    iso: None,
+    max_iso: Some(
+        Iso(
+            51200,
+        ),
+    ),
+    max_shutter: None,
+    exposure_compensation: Some(
+        -0.5,
+    ),
+    white_balance: None,
+    focus: None,
+    zoom: None,
+    tilt: None,
+}
