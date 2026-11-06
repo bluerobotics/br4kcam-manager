@@ -61,3 +61,8 @@
     background-color: var(--sb-thumb-hover);
   }
 }
+/* BlueSlider's value editor (double-click on a slider) is a white box inside a pill whose text is
+   white, so the digits were invisible. Dark text until BlueVue fixes it upstream. */
+input[type="number"].bg-white {
+  color: #000;
+}
