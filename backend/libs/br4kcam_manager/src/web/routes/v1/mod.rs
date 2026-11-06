@@ -16,6 +16,7 @@ pub mod cockpit;
 pub mod health;
 pub mod info;
 pub mod log;
+pub mod pro;
 pub mod settings;
 pub mod ws;
 
@@ -27,6 +28,7 @@ pub fn router() -> Router {
         .nest("/info", info::router())
         .nest("/health", health::router())
         .nest("/settings", settings::router())
+        .nest("/pro", pro::router())
         .nest(
             "/autopilot",
             Router::new().route("/control", post(autopilot_control)),
