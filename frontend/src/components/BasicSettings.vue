@@ -31,7 +31,12 @@
       theme="dark"
       @update:expanded="panelsOpen.image = $event"
     >
+      <!-- BlueButtonGroup picks its selection only when it mounts (the first button when none
+           is marked), so each group waits for its value and remounts when the value changes:
+           no flash of the first button, and changes made elsewhere show. -->
       <BlueButtonGroup
+        v-if="baseParams.awb_auto_mode != null"
+        :key="`awb-scene-${baseParams.awb_auto_mode}`"
         label="Water environment white balance"
         :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
         :button-items="WhiteBalanceSceneButtonItems"
@@ -39,6 +44,8 @@
         type="switch"
       />
       <BlueButtonGroup
+        v-if="baseParams.auto_awb != null"
+        :key="`awb-mode-${baseParams.auto_awb}`"
         label="White balance mode"
         :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
         :button-items="whiteBalanceModeButtonItems"
