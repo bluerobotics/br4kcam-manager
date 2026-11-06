@@ -17,6 +17,7 @@ web_client = { path = "../web_client" }
 mcm_client = { path = "../mcm_client" }
 br4kcam_api = { path = "../br4kcam_api" }
 br4kcam_commands = { path = "../br4kcam_commands" }
+settings = { path = "../settings" }
 
 anyhow = { workspace = true }
 axum = { version = "0.8.3", features = ["ws"] }
