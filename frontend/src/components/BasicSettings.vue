@@ -780,11 +780,11 @@ import {
   BlueExpansiblePanel,
   BlueIcon,
   BlueInput,
-  BlueSelect,
   BlueSlider,
   BlueSwitch,
   BlueTooltip,
 } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import { type BaseParameterSetting, type VideoParameterSettings, type VideoResolutionValue, BaseAutoWhiteBalanceModeValue, BaseAutoWhiteBalanceSceneValue, type AdvancedParameterSetting, type CameraControl } from '@/bindings/br4kcam'
 import { backendClient } from '@/utils/backendClient'
 import {
