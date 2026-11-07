@@ -826,6 +826,7 @@ const baseParams = ref<BaseParameterSetting>({
   awb_green: null,
   awb_blue: null,
   awb_auto_mode: null,
+  wb_temp: null,
   awb_style_red: null,
   awb_style_green: null,
   awb_style_blue: null,
