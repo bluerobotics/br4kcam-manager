@@ -1827,36 +1827,6 @@ const handleChannelChanges = (param: keyof ActuatorsParametersConfig, value: any
   intendedFocusAndZoomParams.value[param] = value
 }
 
-const getBaseParameters = () => {
-  if (!props.selectedCameraUuid || props.disabled) {
-    return
-  }
-
-  const cameraUuid = props.selectedCameraUuid
-  const generation = actuatorsRequestGeneration.value
-  const payload = {
-    camera_uuid: cameraUuid,
-    action: "getImageAdjustment",
-  }
-
-  backendClient.request('POST', '/camera/control', payload)
-    .then(data => {
-      if (
-        props.selectedCameraUuid !== cameraUuid ||
-        generation !== actuatorsRequestGeneration.value
-      ) {
-        return
-      }
-      baseParams.value = pendingBase.mergeRemote(
-        data as BaseParameterSetting,
-      )
-      console.log(data)
-    })
-    .catch(error => {
-      console.error(`Error sending getImageAdjustment request:`, error.message)
-    })
-}
-
 const updateVideoParameters = async (
   partial: Partial<VideoParameterSettings>
 ): Promise<void> => {
