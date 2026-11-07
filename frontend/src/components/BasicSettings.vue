@@ -97,6 +97,22 @@
           @update:model-value="updateBaseParameter('awb_blue', $event as number)"
         />
       </div>
+      <BlueSlider
+        v-if="baseParams.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature"
+        :model-value="baseParams.wb_temp ?? WB_TEMP_RANGE.min"
+        :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
+        name="wb-temp"
+        label="Temperature"
+        :min="WB_TEMP_RANGE.min"
+        :max="WB_TEMP_RANGE.max"
+        :step="100"
+        :keyboard-step-multiplier-limit="10"
+        :format-display="(kelvin: number) => `${Math.round(kelvin)} K`"
+        theme="dark"
+        value-weight="regular"
+        label-width="130px"
+        @update:model-value="updateBaseParameter('wb_temp', $event as number)"
+      />
     </BlueExpansiblePanel>
     <BlueExpansiblePanel
       title="Actuators"
@@ -1252,11 +1268,28 @@ const WhiteBalanceSceneButtonItems = computed(() => [
   }
 ])
 
+/** The camera's colour temperatures for its Temperature white balance (firmware: 1500-15000 K). */
+const WB_TEMP_RANGE = { min: 1500, max: 15000 }
+/** Daylight, for a camera holding no temperature in range. */
+const WB_TEMP_DEFAULT = 5500
+
 const whiteBalanceModeButtonItems = computed(() => [
   { 
     name: 'Auto',
     preSelected: baseParams.value.auto_awb === BaseAutoWhiteBalanceModeValue.Auto,
     onSelected: () => (updateBaseParameter('auto_awb', BaseAutoWhiteBalanceModeValue.Auto))
+  },
+  {
+    name: 'Kelvin',
+    preSelected: baseParams.value.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature,
+    onSelected: () => {
+      // The camera would apply a temperature it holds out of range clamped (0 reads 1500 K).
+      const kelvin = baseParams.value.wb_temp
+      if (kelvin == null || kelvin < WB_TEMP_RANGE.min || kelvin > WB_TEMP_RANGE.max) {
+        updateBaseParameter('wb_temp', WB_TEMP_DEFAULT)
+      }
+      updateBaseParameter('auto_awb', BaseAutoWhiteBalanceModeValue.Temperature)
+    },
   },
   { 
     name: 'Manual',
