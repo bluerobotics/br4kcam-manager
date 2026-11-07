@@ -190,6 +190,21 @@
         />
       </div>
       <BlueSlider
+        v-if="baseParams.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature"
+        name="wb_temp"
+        label="White Balance Temperature"
+        :model-value="baseParams.wb_temp ?? 1500"
+        :min="1500"
+        :max="15000"
+        :step="100"
+        :format-display="(kelvin: number) => `${Math.round(kelvin)} K`"
+        :disabled="props.disabled || wbBusy"
+        theme="dark"
+        value-weight="regular"
+        label-width="130px"
+        @update:model-value="updateBaseParameter('wb_temp', $event)"
+      />
+      <BlueSlider
         name="awb_style_red"
         label="White Balance Style Red"
         :model-value="baseParams.awb_style_red ?? 0"
