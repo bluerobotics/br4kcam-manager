@@ -1,0 +1,21 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/pro_settings/program_max_shutter.json
+---
+ProSettings {
+    mode: Some(
+        Program,
+    ),
+    shutter: None,
+    iso: None,
+    max_iso: None,
+    max_shutter: Some(
+        "1/250",
+    ),
+    exposure_compensation: None,
+    white_balance: None,
+    focus: None,
+    zoom: None,
+    tilt: None,
+}

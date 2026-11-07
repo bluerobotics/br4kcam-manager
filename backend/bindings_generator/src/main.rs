@@ -190,6 +190,17 @@ fn generate_typescript_bindings_for_br4kcam_api() -> Result<()> {
         br4kcam_api::UiDismissField::export_to_string()?,
         br4kcam_api::WsResponse::export_to_string()?,
         br4kcam_api::WsEvent::export_to_string()?,
+        br4kcam_api::pro::ExposureMode::export_to_string()?,
+        br4kcam_api::pro::MaxIso::export_to_string()?,
+        br4kcam_api::pro::FullGain::export_to_string()?,
+        br4kcam_api::pro::ExposureWarning::export_to_string()?,
+        br4kcam_api::pro::WhiteBalanceScene::export_to_string()?,
+        br4kcam_api::pro::WhiteBalance::export_to_string()?,
+        br4kcam_api::pro::Aperture::export_to_string()?,
+        br4kcam_api::pro::Range::export_to_string()?,
+        br4kcam_api::pro::ProState::export_to_string()?,
+        br4kcam_api::pro::ProSettings::export_to_string()?,
+        br4kcam_api::pro::ProCapabilities::export_to_string()?,
     ]
     .join("\n\n");
 

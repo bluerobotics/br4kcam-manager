@@ -58,6 +58,9 @@ pub struct BaseParameterSetting {
     pub awb_blue: Option<u8>,
     /// White Balance Scene.
     pub awb_auto_mode: Option<BaseAutoWhiteBalanceSceneValue>,
+    /// Colour temperature of the light, in kelvin, for the Temperature white balance mode.
+    /// Range: [1500..=15000]; the camera clamps values outside it.
+    pub wb_temp: Option<u16>,
     /// Manual White Balance Style Red. Range: [0..=255]
     pub awb_style_red: Option<u8>,
     /// Manual White Balance Style Green. Range: [0..=255]
@@ -99,7 +102,12 @@ pub struct BaseParameterSetting {
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
 #[tsync]
 #[repr(u32)]
+/// Exposures the camera offers (its web UI's list), as the `x` of 1/x s.
 pub enum BaseMaxExposureValue {
+    _1 = 1,
+    _2 = 2,
+    _3 = 3,
+    _6 = 6,
     _12 = 12,
     _25 = 25,
     #[default]
@@ -107,13 +115,21 @@ pub enum BaseMaxExposureValue {
     _50 = 50,
     _60 = 60,
     _100 = 100,
+    _150 = 150,
     _200 = 200,
+    _250 = 250,
+    _300 = 300,
+    _350 = 350,
     _400 = 400,
+    _600 = 600,
     _800 = 800,
     _1000 = 1000,
     _2000 = 2000,
     _4000 = 4000,
     _8000 = 8000,
+    _10000 = 10000,
+    /// 1/100000 s. The camera takes it as 34464: 100000 truncated to 16 bits.
+    _100000 = 34464,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
@@ -167,7 +183,12 @@ pub enum BaseExposureModeValue {
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
 #[tsync]
 #[repr(u32)]
+/// Exposures the camera offers (its web UI's list), as the `x` of 1/x s.
 pub enum BaseExposureTimeValue {
+    _1 = 1,
+    _2 = 2,
+    _3 = 3,
+    _6 = 6,
     _12 = 12,
     _25 = 25,
     _30 = 30,
@@ -175,15 +196,59 @@ pub enum BaseExposureTimeValue {
     #[default]
     _60 = 60,
     _100 = 100,
+    _150 = 150,
     _200 = 200,
+    _250 = 250,
+    _300 = 300,
+    _350 = 350,
     _400 = 400,
+    _600 = 600,
     _800 = 800,
     _1000 = 1000,
     _2000 = 2000,
     _4000 = 4000,
     _8000 = 8000,
     _10000 = 10000,
-    _34464 = 34464,
+    /// 1/100000 s. The camera takes it as 34464: 100000 truncated to 16 bits.
+    _100000 = 34464,
+}
+
+impl BaseExposureTimeValue {
+    /// Every exposure the camera takes, longest first.
+    pub const ALL: [Self; 24] = [
+        Self::_1,
+        Self::_2,
+        Self::_3,
+        Self::_6,
+        Self::_12,
+        Self::_25,
+        Self::_30,
+        Self::_50,
+        Self::_60,
+        Self::_100,
+        Self::_150,
+        Self::_200,
+        Self::_250,
+        Self::_300,
+        Self::_350,
+        Self::_400,
+        Self::_600,
+        Self::_800,
+        Self::_1000,
+        Self::_2000,
+        Self::_4000,
+        Self::_8000,
+        Self::_10000,
+        Self::_100000,
+    ];
+
+    /// The `x` of the 1/x s exposure, which is not always the number sent to the camera.
+    pub fn denominator(&self) -> u32 {
+        match self {
+            Self::_100000 => 100_000,
+            other => other.clone() as u32,
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
@@ -193,6 +258,8 @@ pub enum BaseAutoWhiteBalanceModeValue {
     #[default]
     Auto = 0,
     Manual = 1,
+    /// Gains the camera computes from `wb_temp`, a colour temperature.
+    Temperature = 2,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
@@ -254,6 +321,16 @@ mod tests {
     use utils::deserialize;
 
     use super::*;
+
+    #[test]
+    fn exposure_times_are_all_listed_with_their_real_duration() {
+        let wire: Vec<BaseExposureTimeValue> = (0..=u32::from(u16::MAX))
+            .filter_map(|value| deserialize(&value.to_string()).ok())
+            .collect();
+        assert_eq!(wire, BaseExposureTimeValue::ALL.to_vec());
+        assert_eq!(BaseExposureTimeValue::_100000.denominator(), 100_000);
+        assert_eq!(BaseExposureTimeValue::_1000.denominator(), 1000);
+    }
 
     #[test]
     fn setting_some_parameters() {
