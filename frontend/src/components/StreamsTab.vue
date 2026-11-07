@@ -98,10 +98,10 @@
 import {
   BlueButton,
   BlueInput,
-  BlueSelect,
   BlueTabs,
   type BlueTab,
 } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import { backendClient } from '@/utils/backendClient'
 import { rebootCamera } from '@/utils/rebootCamera'
 import { useCameraState } from '@/utils/useCameraState'
