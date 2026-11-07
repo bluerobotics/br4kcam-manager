@@ -67,6 +67,13 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
         ));
     }
 
+    // One-push runs from auto white balance and ends visibly only when primed.
+    let primed = if one_push_awb::action_triggers_once_awb(&action) {
+        one_push_awb::prime(camera_uuid, &action).await
+    } else {
+        Default::default()
+    };
+
     camera_ui::start_camera_action(camera_uuid, &action);
 
     let result = match &action {
@@ -90,12 +97,13 @@ pub(crate) async fn camera_control(camera_control: CameraControl) -> Result<Valu
         Ok(value) => {
             camera_ui::finish_camera_action(camera_uuid, &action);
             camera_state::emit_camera_control_update(camera_uuid, &action, &value);
-            one_push_awb::on_control_success(camera_uuid, &action);
+            one_push_awb::on_control_success(camera_uuid, &action, &primed);
             Ok(value)
         }
         Err(error) => {
             let message = format!("{error:?}");
             camera_ui::fail_camera_action(camera_uuid, &action, &message);
+            one_push_awb::unprime(&primed);
             Err(ControlError::other(message))
         }
     }
