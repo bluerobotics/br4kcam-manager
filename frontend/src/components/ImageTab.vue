@@ -794,10 +794,10 @@ import {
 import {
   BlueButton,
   BlueExpansiblePanel,
-  BlueSelect,
   BlueSlider,
   BlueSwitch,
 } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import { enumToOptions } from '@/utils/enumUtils'
 import { backendClient } from '@/utils/backendClient'
 import { useCameraState } from '@/utils/useCameraState'
