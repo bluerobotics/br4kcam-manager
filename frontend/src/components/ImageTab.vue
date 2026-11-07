@@ -638,10 +638,12 @@
         theme="dark"
         @update:model-value="updateAdvancedParam('noiseReduction', $event)"
       />
+      <!-- Neither firmware (V16, V18) has wdr_sensor or wdr_level_sensor: shown only where the camera reports them. -->
       <BlueSlider
+        v-if="advancedParams.wdr_level_sensor != null"
         name="wdr_level_sensor"
         label="WDR Strength"
-        :model-value="advancedParams.wdr_level_sensor ?? 0"
+        :model-value="advancedParams.wdr_level_sensor"
         :min="0"
         :max="255"
         :step="1"
@@ -665,6 +667,7 @@
         @update:model-value="updateAdvancedParam('wdr_level', $event)"
       />
       <BlueSwitch
+        v-if="advancedParams.wdr_sensor != null"
         :model-value="advancedParams.wdr_sensor === AdvancedDisplayWDRSensorValue.Open"
         label="WDR Enable"
         :disabled="props.disabled"
