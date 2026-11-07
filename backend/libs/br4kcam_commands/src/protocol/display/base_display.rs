@@ -58,6 +58,9 @@ pub struct BaseParameterSetting {
     pub awb_blue: Option<u8>,
     /// White Balance Scene.
     pub awb_auto_mode: Option<BaseAutoWhiteBalanceSceneValue>,
+    /// Colour temperature of the light, in kelvin, for the Temperature white balance mode.
+    /// Range: [1500..=15000]; the camera clamps values outside it.
+    pub wb_temp: Option<u16>,
     /// Manual White Balance Style Red. Range: [0..=255]
     pub awb_style_red: Option<u8>,
     /// Manual White Balance Style Green. Range: [0..=255]
@@ -255,6 +258,8 @@ pub enum BaseAutoWhiteBalanceModeValue {
     #[default]
     Auto = 0,
     Manual = 1,
+    /// Gains the camera computes from `wb_temp`, a colour temperature.
+    Temperature = 2,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr, TS)]
