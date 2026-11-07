@@ -1,6 +1,6 @@
 ---
 source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
-expression: "parse_recorded::<CameraControl>(path)"
+expression: "parse_recorded::<T>(&path)"
 input_file: api/requests/camera_control/set_image_adjustment.json
 ---
 CameraControl {
@@ -67,6 +67,7 @@ CameraControl {
             awb_auto_mode: Some(
                 Scene1,
             ),
+            wb_temp: None,
             awb_style_red: Some(
                 1,
             ),

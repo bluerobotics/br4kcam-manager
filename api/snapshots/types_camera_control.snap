@@ -84,7 +84,7 @@ export type BaseAutoExposureStrategyModeValue = 0 /* HighLightPriority */ | 1 /*
 
 export type BaseAutoGainModeValue = 0 /* Auto */ | 1 /* Manual */;
 
-export type BaseAutoWhiteBalanceModeValue = 0 /* Auto */ | 1 /* Manual */;
+export type BaseAutoWhiteBalanceModeValue = 0 /* Auto */ | 1 /* Manual */ | 2 /* Temperature */;
 
 export type BaseAutoWhiteBalanceSceneValue = 0 /* Scene1 */ | 1 /* Scene2 */;
 
@@ -121,6 +121,7 @@ export type BaseParameterSetting = {
     awb_green: number | null,
     awb_blue: number | null,
     awb_auto_mode: BaseAutoWhiteBalanceSceneValue | null,
+    wb_temp: number | null,
     awb_style_red: number | null,
     awb_style_green: number | null,
     awb_style_blue: number | null,
