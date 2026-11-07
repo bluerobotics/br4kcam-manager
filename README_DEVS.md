@@ -222,7 +222,13 @@ the camera and autopilot controls in the backend (types in `br4kcam_api::pro`):
   its calibration (`auto_awb` 2 and `wb_temp`; checked on V16 and V18). Left out, `kelvin`
   keeps the camera's, or 5500 K when it holds none in range. Manual and temperature hold the
   scene `auto` returns to. White balance is written at once, never ramped.
-- `POST .../white_balance/one_push` starts a one-push white balance (202).
+- `POST .../white_balance/one_push` starts a one-push white balance (202). The camera's
+  one-push is its own closed loop on the video that writes its result once, as Manual white
+  balance; only its first run after the camera starts switches to auto white balance first.
+  So the backend puts white balance on Auto for 1 s before every onceAWB, whoever sends it
+  (`one_push_awb::prime`): each run starts from auto white balance's gains, and its end shows
+  as Auto turning Manual, even when the gains come out unchanged. The white balance controls
+  are busy from the click until then (typically about 2 s; at most 90 s).
 
 ```bash
 curl -X PATCH localhost:8080/v1/pro/$UUID -H 'Content-Type: application/json' \
