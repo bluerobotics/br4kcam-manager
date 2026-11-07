@@ -1009,36 +1009,6 @@ const updateBaseParameter = (param: keyof BaseParameterSetting, value: any) => {
     })
 }
 
-const getBaseParameters = () => {
-  if (!props.selectedCameraUuid) {
-    return
-  }
-
-  const cameraUuid = props.selectedCameraUuid
-  const generation = imageRequestGeneration.value
-  const payload = {
-    camera_uuid: cameraUuid,
-    action: "getImageAdjustment",
-  }
-
-  backendClient.request('POST', '/camera/control', payload)
-    .then(data => {
-      if (
-        props.selectedCameraUuid !== cameraUuid ||
-        generation !== imageRequestGeneration.value
-      ) {
-        return
-      }
-      baseParams.value = pendingBase.mergeRemote(
-        data as BaseParameterSetting,
-      )
-      console.log(data)
-    })
-    .catch(error => {
-      console.error(`Error sending getImageAdjustment request:`, error.message)
-    })
-}
-
 const doWhiteBalance = async () => {
   if (!props.selectedCameraUuid || props.disabled || wbBusy.value) {
     return
