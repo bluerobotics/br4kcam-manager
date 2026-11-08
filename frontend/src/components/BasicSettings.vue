@@ -522,13 +522,6 @@
               </div>
               <div class="flex flex-col gap-[15px]">
                 <BlueSelect
-                  v-model="intendedFocusAndZoomParams.script_function"
-                  :disabled="hardwareSetupControlsDisabled"
-                  label="Script Function"
-                  :items="scriptFunctionOptions"
-                  theme="dark"
-                />
-                <BlueSelect
                   v-model="intendedFocusAndZoomParams.camera_id"
                   :disabled="props.disabled || true"
                   label="Camera ID"
@@ -773,7 +766,7 @@ import {
 import { createPendingFields } from '@/utils/pendingFields'
 import { rebootCamera } from '@/utils/rebootCamera'
 import { useCameraState } from '@/utils/useCameraState'
-import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, LensType, MountType, ScriptFunction, ServoChannel, SetupPreview } from '@/bindings/autopilot'
+import type { ActuatorsConfig, ActuatorsControl, ActuatorsParametersConfig, ActuatorsState, CameraID, LensType, MountType, ServoChannel, SetupPreview } from '@/bindings/autopilot'
 import type { CameraStateEvent, OnePushAwbStatus } from '@/bindings/br4kcam_api'
 import WelcomeDialog from './WelcomeDialog.vue'
 import AutopilotRestartDialog from './AutopilotRestartDialog.vue'
@@ -1331,11 +1324,6 @@ const cameraIdOptions = [
   { name: 'CAM1', value: 'CAM1' },
   { name: 'CAM2', value: 'CAM2' },
 ] satisfies { name: string; value: CameraID }[];
-
-const scriptFunctionOptions = Array.from({ length: 16 }, (_, i) => ({
-  name: `SCRIPT${i + 1}`,
-  value: `SCRIPT${i + 1}` as ScriptFunction,
-}));
 
 const mountTypeOptions = [
   { name: 'Servo', value: 'Servo' },
