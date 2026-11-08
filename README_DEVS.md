@@ -84,7 +84,7 @@ docker run --rm -it --net=host br4kcam-manager:latest --help
 
 **NOTE**: this software requires:
 - [Mavlink Camera Manager](http://github.com/mavlink/mavlink-camera-manager) instance running somewhere. It can configurable using the `--mcm-address <MCM_ADDRESS>` command line argument.
-- Some MAVLink-compatible autopilot firmware running with version `>=4.7.0`
+- Some MAVLink-compatible autopilot firmware running with version `>=4.7.0`. Two motorized cameras that zoom and focus independently need ArduSub `>=4.8`, which routes zoom and focus commands by camera id; they are set up as Scripting cameras (`CAMn_TYPE` 7) driven by the extension's Lua script. Older ArduSub keeps the earlier parameters, Servo cameras (`CAMn_TYPE` 1) on ArduPilot's one CameraZoom and CameraFocus, so two cameras move together, each focus servo on its own calibration. The Lua script is the same on every firmware and drives each camera by its `CAMn_TYPE`, so after updating the extension an older ArduSub shows the script as outdated once, until it is exported again (scripts reload, no reboot unless scripting was disabled). After an update to `>=4.8` the extension proposes the per-camera parameters as drifts to restore.
 - Some MAVLink router endpoint, configurable using the `--mavlink` command line argument.
 
 ## Camera firmware updates
