@@ -1150,7 +1150,7 @@ mod tests {
                 "CAM1_TYPE: 7 → 0",
                 "SERVO10_FUNCTION: 94 → 0",
                 "SERVO11_FUNCTION: 95 → 0",
-                "SERVO12_FUNCTION: 92 → 0",
+                "SERVO12_FUNCTION: 96 → 0",
             ]
         );
 
