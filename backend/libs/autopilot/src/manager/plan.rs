@@ -336,29 +336,49 @@ fn release(
     wrote
 }
 
-/// What happens to the script once `camera_uuid` stops using it: it follows another motorized
-/// camera, preferably one it already serves, or goes away with the last one.
-fn script_without(snapshot: &Snapshot, camera_uuid: Uuid) -> Result<ScriptAction> {
-    let motorized_others: Vec<&CameraActuators> = snapshot
+/// The motorized cameras the one script serves once `camera_uuid` is set up as `next`, or
+/// forgotten with `None`, in saved order.
+fn script_cameras<'a>(
+    snapshot: &'a Snapshot,
+    camera_uuid: Uuid,
+    next: Option<&'a CameraActuators>,
+) -> Vec<&'a CameraActuators> {
+    let mut cameras: Vec<&CameraActuators> = snapshot
         .saved
         .iter()
-        .filter(|(uuid, actuators)| {
-            **uuid != camera_uuid && actuators.parameters.has_motorized_lens()
+        .filter_map(|(uuid, actuators)| {
+            if *uuid == camera_uuid {
+                next
+            } else {
+                Some(actuators)
+            }
         })
-        .map(|(_, actuators)| actuators)
         .collect();
-    let mut serves_another = false;
-    for other in &motorized_others {
-        serves_another |= script_installed(snapshot, &script::generate_checked_lua_script(other)?);
+    if let Some(next) = next
+        && !snapshot.saved.contains_key(&camera_uuid)
+    {
+        cameras.push(next);
     }
-    Ok(if serves_another {
+    cameras.retain(|camera| camera.parameters.has_motorized_lens());
+    cameras
+}
+
+/// What happens to the script once `camera_uuid` stops using it: it is rewritten for the other
+/// motorized cameras, or goes away with the last one.
+fn script_without(snapshot: &Snapshot, camera_uuid: Uuid) -> Result<ScriptAction> {
+    let others = script_cameras(snapshot, camera_uuid, None);
+    if others.is_empty() {
+        return Ok(if snapshot.installed_script.is_some() {
+            ScriptAction::Delete
+        } else {
+            ScriptAction::Keep
+        });
+    }
+    let contents = script::generate_checked_lua_script(&others)?;
+    Ok(if script_installed(snapshot, &contents) {
         ScriptAction::Keep
-    } else if let Some(first) = motorized_others.first() {
-        ScriptAction::Write(script::generate_checked_lua_script(first)?)
-    } else if snapshot.installed_script.is_some() {
-        ScriptAction::Delete
     } else {
-        ScriptAction::Keep
+        ScriptAction::Write(contents)
     })
 }
 
@@ -368,27 +388,6 @@ fn script_installed(snapshot: &Snapshot, contents: &str) -> bool {
         .installed_script
         .as_deref()
         .is_some_and(|installed| script::lua_scripts_equivalent(installed, contents))
-}
-
-/// The motorized camera the installed script serves, `preferred` first: the one whose
-/// script parameters are written once the script runs.
-pub(crate) fn script_camera(snapshot: &Snapshot, preferred: Uuid) -> Option<Uuid> {
-    let preferred_first = snapshot.saved.get_key_value(&preferred).into_iter().chain(
-        snapshot
-            .saved
-            .iter()
-            .filter(|(uuid, _)| **uuid != preferred),
-    );
-    for (uuid, camera) in preferred_first {
-        // A camera whose script cannot be generated is not the one installed.
-        if camera.parameters.has_motorized_lens()
-            && script::generate_checked_lua_script(camera)
-                .is_ok_and(|contents| script_installed(snapshot, &contents))
-        {
-            return Some(*uuid);
-        }
-    }
-    None
 }
 
 /// The releases of `plan` as `name: old → new`, and what happens to the Lua script when the
@@ -579,7 +578,11 @@ pub(crate) fn plan_apply(
     let mut after_reload = Vec::new();
     if motorized {
         let overwrite = overwrite || turning_motorized;
-        let contents = script::generate_checked_lua_script(&next)?;
+        let contents = script::generate_checked_lua_script(&script_cameras(
+            snapshot,
+            camera_uuid,
+            Some(&next),
+        ))?;
         if overwrite || !script_installed(snapshot, &contents) {
             script = ScriptAction::Write(contents);
         }
@@ -723,6 +726,26 @@ mod tests {
         let mut owned = IndexMap::new();
         owned_parameters::push_all_expectations(parameters, Setup::PerCamera, &mut owned);
         owned
+    }
+
+    /// The second camera's default setup on servos 7, 8 and 9 and tilt 15.
+    fn second_camera_config() -> api::ActuatorsConfig {
+        parameters(api::ActuatorsParametersConfig {
+            focus_channel: Some(api::ServoChannel::SERVO7),
+            zoom_channel: Some(api::ServoChannel::SERVO8),
+            script_channel: Some(api::ServoChannel::SERVO9),
+            tilt_channel: Some(api::ServoChannel::SERVO15),
+            ..api::ActuatorsParametersConfig::from(&CameraActuators::default().parameters)
+        })
+    }
+
+    /// The two default cameras on their own channels: CAM1 on 10/11/12 and tilt 16, CAM2 on
+    /// 7/8/9 and tilt 15.
+    fn two_cameras() -> Snapshot {
+        let snapshot = set_up(empty(), CAMERA);
+        let plan = plan_apply(&snapshot, OTHER, &second_camera_config(), false).unwrap();
+        assert_eq!(plan.next.parameters.camera_id, api::CameraID::CAM2);
+        applied(snapshot, OTHER, &plan)
     }
 
     #[test]
@@ -1345,31 +1368,19 @@ mod tests {
                 "Lua script br4kcam.lua: rewritten for the other motorized cameras"
             ]
         );
-
-        // Its script parameters are the other camera's once the autopilot rebooted.
-        let snapshot = applied(snapshot, CAMERA, &plan);
-        assert_eq!(script_camera(&snapshot, CAMERA), Some(OTHER));
     }
 
     #[test]
-    fn release_keeps_the_script_for_the_camera_it_already_serves() {
-        const THIRD: Uuid = Uuid::from_u128(0x091a_0003);
-        let mut snapshot = set_up(empty(), THIRD);
-        snapshot
-            .saved
-            .get_mut(&THIRD)
-            .unwrap()
-            .parameters
-            .focus_margin_gain = 3.0;
-        let snapshot = set_up(snapshot, OTHER);
-        let snapshot = set_up(snapshot, CAMERA);
-        let plan = plan_apply(&snapshot, CAMERA, &lens_config(fixed()), false).unwrap();
+    fn a_camera_turning_fixed_focus_rewrites_the_script_for_the_other_one() {
+        let snapshot = two_cameras();
+        let plan = plan_apply(&snapshot, OTHER, &lens_config(fixed()), false).unwrap();
 
-        // The installed script is the one OTHER, with the same setup, needs.
-        assert_eq!(plan.script, ScriptAction::Keep);
-        assert!(!plan.reboot);
-        let snapshot = applied(snapshot, CAMERA, &plan);
-        assert_eq!(script_camera(&snapshot, CAMERA), Some(OTHER));
+        let ScriptAction::Write(contents) = &plan.script else {
+            panic!("the script must stop serving the camera that turned fixed-focus");
+        };
+        assert!(contents.contains("BR4KCAM1_") && !contents.contains("BR4KCAM2_"));
+        // The rewritten script only runs after the autopilot rebooted.
+        assert!(plan.reboot);
     }
 
     #[test]
@@ -1450,29 +1461,26 @@ mod tests {
             .focus_margin_gain = 2.0;
         let (_, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
 
-        let expected = script::generate_checked_lua_script(&snapshot.saved[&OTHER]).unwrap();
+        let expected = script::generate_checked_lua_script(&[&snapshot.saved[&OTHER]]).unwrap();
         assert_eq!(script, ScriptAction::Write(expected));
     }
 
     #[test]
-    fn turning_motorized_takes_over_another_cameras_script() {
-        let mut snapshot = set_up_lens(set_up(empty(), OTHER), CAMERA, fixed());
-        snapshot
-            .saved
-            .get_mut(&OTHER)
-            .unwrap()
-            .parameters
-            .focus_margin_gain = 2.0;
+    fn turning_motorized_adds_the_camera_to_the_one_script() {
+        let snapshot = two_cameras();
+        let snapshot = apply(snapshot, OTHER, &lens_config(fixed()));
         let plan = plan_apply(
             &snapshot,
-            CAMERA,
+            OTHER,
             &lens_config(api::LensType::Motorized),
             false,
         )
         .unwrap();
 
-        // One script file serves every camera, so the camera turning motorized takes it over.
-        let expected = script::generate_checked_lua_script(&plan.next).unwrap();
+        // One script file serves every motorized camera, so the camera turning motorized joins it.
+        let expected =
+            script::generate_checked_lua_script(&[&snapshot.saved[&CAMERA], &plan.next]).unwrap();
+        assert!(expected.contains("BR4KCAM1_") && expected.contains("BR4KCAM2_"));
         assert_eq!(plan.script, ScriptAction::Write(expected));
         assert!(plan.reboot);
     }

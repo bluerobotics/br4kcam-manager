@@ -453,17 +453,14 @@ impl Manager {
     /// the script runs. Caller must hold [`CONFIG_APPLY`].
     #[instrument(level = "debug")]
     pub async fn finalize_config_after_reboot(camera_uuid: &Uuid) -> Result<()> {
-        // The script serves this camera, or another motorized camera it was handed to when
-        // this one turned fixed-focus. Unmatched, a motorized camera keeps its own.
+        // The one script serves every motorized camera.
         let snapshot = plan::Snapshot::capture().await?;
-        let parameters = plan::script_camera(&snapshot, *camera_uuid)
-            .and_then(|uuid| snapshot.saved.get(&uuid))
-            .or_else(|| snapshot.saved.get(camera_uuid))
-            .map(|actuators| &actuators.parameters)
-            .filter(|parameters| parameters.has_motorized_lens());
-        if let Some(parameters) = parameters {
-            for write in script::param_writes(parameters, parameters, true) {
-                Self::write_param(&write).await?;
+        for actuators in snapshot.saved.values() {
+            let parameters = &actuators.parameters;
+            if parameters.has_motorized_lens() {
+                for write in script::param_writes(parameters, parameters, true) {
+                    Self::write_param(&write).await?;
+                }
             }
         }
         Self::save_actuators_settings().await?;
