@@ -197,6 +197,8 @@ pub struct ActuatorsParameters {
     pub focus_margin_gain: f32,
 
     // Script channel parameters
+    /// The focus servo's function in the [`Setup::Shared`] setup. The per-camera setup
+    /// derives every function from the camera id, see [`ActuatorsParameters::focus_function`].
     pub script_function: api::ScriptFunction,
     pub script_channel: api::ServoChannel,
     pub script_channel_min: u16,
@@ -269,6 +271,39 @@ impl Default for ActuatorsParameters {
 }
 
 impl ActuatorsParameters {
+    /// The camera's `offset`th Script function. Each camera id owns three, so no function
+    /// moves two cameras, which ArduPilot's CameraFocus and CameraZoom would.
+    fn script_function_at(&self, offset: i16) -> ChannelFunction {
+        let function = ChannelFunction::Script1 as i16 + 3 * (self.camera_id as i16 - 1) + offset;
+        ChannelFunction::try_from(function).expect("camera ids 1 and 2 own Script1 to Script6")
+    }
+
+    /// The function of the focus servo, which the Lua script drives.
+    pub fn focus_function(&self, setup: Setup) -> ChannelFunction {
+        match setup {
+            Setup::Shared => ChannelFunction::try_from(self.script_function as u8 as i16)
+                .expect("every script function is a Script channel function"),
+            Setup::PerCamera => self.script_function_at(0),
+        }
+    }
+
+    /// The function of the zoom servo.
+    pub fn zoom_function(&self, setup: Setup) -> ChannelFunction {
+        match setup {
+            Setup::Shared => ChannelFunction::CameraZoom,
+            Setup::PerCamera => self.script_function_at(1),
+        }
+    }
+
+    /// The function of the script channel, which shows the focus asked for: ArduPilot's
+    /// CameraFocus, which the script reads, or a Script function the script writes.
+    pub fn focus_input_function(&self, setup: Setup) -> ChannelFunction {
+        match setup {
+            Setup::Shared => ChannelFunction::CameraFocus,
+            Setup::PerCamera => self.script_function_at(2),
+        }
+    }
+
     /// True when the lens has focus and zoom servos, driven through the Lua script.
     pub fn has_motorized_lens(&self) -> bool {
         self.lens == api::LensType::Motorized
