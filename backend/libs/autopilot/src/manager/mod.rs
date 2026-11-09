@@ -232,7 +232,9 @@ impl Manager {
                     confirmation: 0,
                     param1: SetFocusType::FOCUS_TYPE_RANGE as u8 as f32,
                     param2: focus,
-                    param3: 0 as f32,
+                    // The camera id: ArduSub 4.8 and newer hand the command to that camera only,
+                    // older ArduSub ignores it and hands it to the first camera.
+                    param3: parameters.camera_id as u8 as f32,
                     ..Default::default()
                 })
                 .await
@@ -248,7 +250,7 @@ impl Manager {
                     confirmation: 0,
                     param1: CameraZoomType::ZOOM_TYPE_RANGE as u8 as f32,
                     param2: zoom,
-                    param3: 0 as f32,
+                    param3: parameters.camera_id as u8 as f32,
                     ..Default::default()
                 })
                 .await
