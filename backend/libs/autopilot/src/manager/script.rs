@@ -562,6 +562,23 @@ fn validate_lua(script: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api;
+
+    /// The second camera: CAM2, on servos 7 to 9 (zoom 8, focus 7, script 9) and tilt 15.
+    fn second_camera() -> CameraActuators {
+        let mut camera = CameraActuators::default();
+        let parameters = &mut camera.parameters;
+        parameters.camera_id = api::CameraID::CAM2;
+        parameters.focus_channel = api::ServoChannel::SERVO7;
+        parameters.zoom_channel = api::ServoChannel::SERVO8;
+        parameters.script_channel = api::ServoChannel::SERVO9;
+        parameters.tilt_channel = api::ServoChannel::SERVO15;
+        camera
+    }
+
+    fn both() -> [CameraActuators; 2] {
+        [CameraActuators::default(), second_camera()]
+    }
 
     #[test]
     fn lua_scripts_equivalent_ignores_version_header() {
@@ -605,6 +622,32 @@ mod tests {
     }
 
     #[test]
+    fn one_script_serves_every_motorized_camera_once() {
+        let [first, second] = both();
+        let contents = generate_lua_script(&[&second, &first]).unwrap();
+        validate_lua(&contents).unwrap();
+
+        assert_eq!(contents.matches("param_table_key =").count(), 2);
+        assert!(contents.contains("param_prefix = \"BR4KCAM1_\""));
+        assert!(contents.contains("param_prefix = \"BR4KCAM2_\""));
+        assert!(contents.contains("k_focus = 97,"));
+        assert!(contents.contains("k_zoom = 98,"));
+        assert!(contents.contains("k_focus_input = 99,"));
+        // The order of the cameras does not change the script, so health does not flag it.
+        assert_eq!(contents, generate_lua_script(&[&first, &second]).unwrap());
+
+        // A fixed-focus lens needs none, and a script with no camera to serve is refused.
+        let mut fixed = second_camera();
+        fixed.parameters.lens = api::LensType::FixedFocus;
+        let contents = generate_lua_script(&[&first, &fixed]).unwrap();
+        assert!(!contents.contains("BR4KCAM2_"));
+        assert!(generate_lua_script(&[&fixed]).is_err());
+        // Cameras on one camera id share their functions, so only the first is served.
+        let contents = generate_lua_script(&[&first, &first]).unwrap();
+        assert_eq!(contents.matches("param_table_key =").count(), 1);
+    }
+
+    #[test]
     fn ownership_markers_recognize_legacy_and_current_scripts() {
         assert!(script_has_ownership_marker(
             "-- BLUEROBOTICS_4K_CAM_MANAGER_SCRIPT\nlocal x = 1"
@@ -615,5 +658,13 @@ mod tests {
         assert!(!script_has_ownership_marker(
             "-- some unrelated vehicle script"
         ));
+    }
+
+    #[test]
+    fn the_script_leaves_the_commands_to_ardupilot() {
+        let [first, _] = both();
+        let contents = generate_lua_script(&[&first]).unwrap();
+        assert!(!contents.contains("block_command(") && !contents.contains("register_rx_msgid("));
+        assert!(contents.contains("get_state(camera.id - 1)"));
     }
 }
