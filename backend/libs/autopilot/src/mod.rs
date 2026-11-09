@@ -430,6 +430,19 @@ pub(crate) async fn control_inner(
                 .request_servo_output_raw()
                 .await
                 .context("Failed waiting for SERVO_OUTPUT_RAW_DATA message")?;
+            // The per-camera setup's script moves the outputs on its next run, up to 100 ms
+            // later, so the state replied is read after it.
+            let state_servo_output_raw = if (new_state.focus.is_some() || new_state.zoom.is_some())
+                && crate::health::setup() == Some(parameters::Setup::PerCamera)
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                crate::mavlink::component()?
+                    .request_servo_output_raw()
+                    .await
+                    .context("Failed waiting for SERVO_OUTPUT_RAW_DATA message")?
+            } else {
+                servo_output_raw.clone()
+            };
             let (state, script_stuck) = {
                 let mut manager = MANAGER.get().context("Not available")?.write().await;
                 let script_stuck = new_state.focus.is_some_and(|focus| {
@@ -444,7 +457,8 @@ pub(crate) async fn control_inner(
                     .actuators
                     .get_mut(&camera_uuid)
                     .context(crate::ACTUATORS_NOT_CONFIGURED)?;
-                let measured = manager::actuators_state_from_servo(actuators, &servo_output_raw);
+                let measured =
+                    manager::actuators_state_from_servo(actuators, &state_servo_output_raw);
                 let age_after = actuators_watch::last_servo_age(camera_uuid);
                 let state = if !actuators_watch::servo_mark_advanced(age_before, age_after) {
                     actuators.state = measured;
