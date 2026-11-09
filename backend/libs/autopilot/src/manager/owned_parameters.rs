@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     api,
     health::{self, ObserveSource},
-    parameters::{ActuatorsParameters, ParamType, Parameter},
+    parameters::{ActuatorsParameters, ParamType, Parameter, Setup},
 };
 
 use super::{MANAGER, camera, focus, script, tilt, zoom};
@@ -45,11 +45,12 @@ pub(crate) fn is_eligible(camera_uuid: &Uuid, name: &str) -> bool {
 
 pub(crate) async fn rebuild() {
     let mut merged = IndexMap::new();
-    if let Some(manager) = MANAGER.get() {
+    // Until the firmware version is read neither setup is expected, so nothing drifts.
+    if let (Some(manager), Some(setup)) = (MANAGER.get(), health::setup()) {
         let guard = manager.read().await;
         for (camera_uuid, actuators) in &guard.settings.actuators {
             let mut per_camera = IndexMap::new();
-            push_all_expectations(&actuators.parameters, &mut per_camera);
+            push_all_expectations(&actuators.parameters, setup, &mut per_camera);
             if !per_camera.is_empty() {
                 merged.insert(*camera_uuid, per_camera);
             }
@@ -118,6 +119,7 @@ fn prune_to_expectations() {
 
 pub(crate) fn push_all_expectations(
     parameters: &ActuatorsParameters,
+    setup: Setup,
     map: &mut IndexMap<String, ParamType>,
 ) {
     // SERVO*_MIN/MAX/TRIM are written on hardware setup as recommended PWM ranges,
@@ -186,7 +188,7 @@ pub(crate) fn clear_eligibility_for_test() {
 #[cfg(test)]
 pub(crate) fn install_expectations_for_test(camera_uuid: Uuid, parameters: &ActuatorsParameters) {
     let mut per_camera = IndexMap::new();
-    push_all_expectations(parameters, &mut per_camera);
+    push_all_expectations(parameters, Setup::PerCamera, &mut per_camera);
     expectations()
         .write()
         .expect("owned expectations lock")

@@ -26,6 +26,10 @@ use crate::{
     parameters::ActuatorsParameters,
 };
 
+/// Why nothing is planned: the setup depends on the firmware, which is read at connect.
+pub(crate) const FIRMWARE_UNKNOWN: &str =
+    "The autopilot firmware version is not known yet, try again once the autopilot is connected";
+
 pub static MANAGER: OnceCell<RwLock<Manager>> = OnceCell::new();
 
 /// Serializes config apply/reset/clear. Watcher never takes this.

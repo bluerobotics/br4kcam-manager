@@ -8,11 +8,12 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use uuid::Uuid;
 
-use super::{MANAGER, camera, focus, owned_parameters, script, tilt, zoom};
+use super::{FIRMWARE_UNKNOWN, MANAGER, camera, focus, owned_parameters, script, tilt, zoom};
 use crate::{
     CameraActuators, api,
     parameters::{
-        ActuatorsParameters, CameraType, ChannelFunction, ParamType, Parameter, param_display_value,
+        ActuatorsParameters, CameraType, ChannelFunction, ParamType, Parameter, Setup,
+        param_display_value,
     },
 };
 
@@ -61,6 +62,8 @@ pub(crate) struct Snapshot {
     pub installed_script: Option<String>,
     /// A reboot an earlier apply asked for has not finished yet.
     pub reboot_pending: bool,
+    /// The setup the autopilot's firmware takes, `None` until its version is read.
+    pub setup: Option<Setup>,
 }
 
 impl Snapshot {
@@ -87,6 +90,7 @@ impl Snapshot {
             script_path,
             installed_script,
             reboot_pending: super::reboot_pending(),
+            setup: crate::health::setup(),
         })
     }
 }
@@ -102,6 +106,14 @@ pub(super) struct Change<'a> {
     pub overwrite: bool,
     /// The camera id changes, which renumbers the mount and script parameters.
     pub camera_moved: bool,
+    pub setup: Setup,
+}
+
+impl Change<'_> {
+    /// The per-camera setup's functions follow the camera id, so a camera id move moves them.
+    pub fn functions_moved(&self) -> bool {
+        self.camera_moved && self.setup == Setup::PerCamera
+    }
 }
 
 pub(super) struct Planner<'a> {
@@ -217,6 +229,7 @@ fn released_value(name: &str) -> Option<ParamType> {
 fn other_cameras(
     snapshot: &Snapshot,
     camera_uuid: Uuid,
+    setup: Setup,
 ) -> Vec<(Uuid, IndexMap<String, ParamType>)> {
     snapshot
         .saved
@@ -224,7 +237,7 @@ fn other_cameras(
         .filter(|(uuid, _)| **uuid != camera_uuid)
         .map(|(uuid, actuators)| {
             let mut owned = IndexMap::new();
-            owned_parameters::push_all_expectations(&actuators.parameters, &mut owned);
+            owned_parameters::push_all_expectations(&actuators.parameters, setup, &mut owned);
             (*uuid, owned)
         })
         .collect()
@@ -259,10 +272,11 @@ fn refuse_taking_other_cameras(
     snapshot: &Snapshot,
     camera_uuid: Uuid,
     next: &ActuatorsParameters,
+    setup: Setup,
 ) -> Result<()> {
     let mut ours = IndexMap::new();
-    owned_parameters::push_all_expectations(next, &mut ours);
-    for (uuid, theirs) in other_cameras(snapshot, camera_uuid) {
+    owned_parameters::push_all_expectations(next, setup, &mut ours);
+    for (uuid, theirs) in other_cameras(snapshot, camera_uuid, setup) {
         for (name, value) in &ours {
             if released_value(name).is_some()
                 && theirs
@@ -288,16 +302,17 @@ fn release(
     camera_uuid: Uuid,
     written: &ActuatorsParameters,
     next: Option<&ActuatorsParameters>,
+    setup: Setup,
 ) -> bool {
     let mut others = IndexMap::new();
-    for (_, owned) in other_cameras(snapshot, camera_uuid) {
+    for (_, owned) in other_cameras(snapshot, camera_uuid, setup) {
         others.extend(owned);
     }
     let mut ours = IndexMap::new();
-    owned_parameters::push_all_expectations(written, &mut ours);
+    owned_parameters::push_all_expectations(written, setup, &mut ours);
     let mut used = IndexMap::new();
     if let Some(next) = next {
-        owned_parameters::push_all_expectations(next, &mut used);
+        owned_parameters::push_all_expectations(next, setup, &mut used);
     }
 
     let mut wrote = false;
@@ -422,8 +437,16 @@ pub(crate) fn plan_forget(
     let Some(saved) = snapshot.saved.get(&camera_uuid) else {
         return Ok(None);
     };
+    let setup = snapshot.setup.context(FIRMWARE_UNKNOWN)?;
     let mut planner = Planner::new(&snapshot.autopilot);
-    release(&mut planner, snapshot, camera_uuid, &saved.parameters, None);
+    release(
+        &mut planner,
+        snapshot,
+        camera_uuid,
+        &saved.parameters,
+        None,
+        setup,
+    );
     let script = if saved.parameters.has_motorized_lens() {
         script_without(snapshot, camera_uuid)?
     } else {
@@ -440,6 +463,8 @@ pub(crate) fn plan_apply(
     config: &api::ActuatorsConfig,
     overwrite: bool,
 ) -> Result<ApplyPlan> {
+    // Each setup only works on its own firmware, so none is planned before the version is read.
+    let setup = snapshot.setup.context(FIRMWARE_UNKNOWN)?;
     let saved = snapshot.saved.get(&camera_uuid);
     let overwrite = overwrite || saved.is_none();
     let base = saved.cloned().unwrap_or_default();
@@ -504,13 +529,14 @@ pub(crate) fn plan_apply(
 
     if config.parameters.is_some() {
         refuse_shared_channels(&next)?;
-        refuse_taking_other_cameras(snapshot, camera_uuid, &next)?;
+        refuse_taking_other_cameras(snapshot, camera_uuid, &next, setup)?;
         let change = Change {
             current: written,
             next: &next,
             incoming: &incoming,
             overwrite,
             camera_moved,
+            setup,
         };
         if motorized {
             let incoming_motorized = api::ActuatorsParametersConfig::from(&next);
@@ -537,6 +563,7 @@ pub(crate) fn plan_apply(
                 camera_uuid,
                 &saved.parameters,
                 Some(&next),
+                setup,
             );
         }
     }
@@ -588,9 +615,11 @@ mod tests {
     const CAMERA: Uuid = Uuid::from_u128(0x091a_0001);
     const OTHER: Uuid = Uuid::from_u128(0x091a_0002);
 
+    /// No camera set up yet, on an ArduSub 4.8 or newer.
     fn empty() -> Snapshot {
         Snapshot {
             script_path: "/scripts/br4kcam.lua".to_string(),
+            setup: Some(Setup::PerCamera),
             ..Default::default()
         }
     }
@@ -692,7 +721,7 @@ mod tests {
     /// The parameters `parameters` owns, with their values.
     fn owned(parameters: &ActuatorsParameters) -> IndexMap<String, ParamType> {
         let mut owned = IndexMap::new();
-        owned_parameters::push_all_expectations(parameters, &mut owned);
+        owned_parameters::push_all_expectations(parameters, Setup::PerCamera, &mut owned);
         owned
     }
 
@@ -1004,6 +1033,7 @@ mod tests {
                 incoming: &api::ActuatorsParametersConfig::default(),
                 overwrite: false,
                 camera_moved: true,
+                setup: Setup::PerCamera,
             },
         );
 
@@ -1260,7 +1290,11 @@ mod tests {
             let snapshot = applied(snapshot.clone(), CAMERA, &plan);
 
             let mut expected = IndexMap::new();
-            owned_parameters::push_all_expectations(&defaults.parameters, &mut expected);
+            owned_parameters::push_all_expectations(
+                &defaults.parameters,
+                Setup::PerCamera,
+                &mut expected,
+            );
             let focus = param_display_value(&expected["SERVO10_FUNCTION"]);
             assert_eq!(held(&snapshot, "SERVO10_FUNCTION"), focus, "{overwrite}");
             assert_eq!(
