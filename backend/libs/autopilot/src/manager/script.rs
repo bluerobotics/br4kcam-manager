@@ -426,8 +426,9 @@ pub(crate) struct PerCameraScriptHealthTracker {
 impl PerCameraScriptHealthTracker {
     /// A new focus command, `focus` in %, while the script channel reads `shown` PWM, within
     /// `range` (min, max). The channel is judged against the command before this one, once
-    /// the script had time to follow it. Returns `true` when the script has not shown the last
-    /// few commands, so it is stopped or stuck.
+    /// the script had time to follow it. A channel already showing this command counts as
+    /// shown too: `shown` is read after this command went out. Returns `true` when the script
+    /// has not shown the last few commands, so it is stopped or stuck.
     fn update(&mut self, now: Instant, focus: f32, shown: u16, range: (u16, u16)) -> bool {
         let previous = self.last.replace((focus, now));
         let Some((asked, at)) =
@@ -438,7 +439,11 @@ impl PerCameraScriptHealthTracker {
 
         let (min, max) = (f32::from(range.0), f32::from(range.1));
         let expected = min + asked.clamp(0.0, 100.0) * (max - min) / 100.0;
-        if (f32::from(shown) - expected).abs() <= PER_CAMERA_SCRIPT_PWM_TOLERANCE {
+        let newer = min + focus.clamp(0.0, 100.0) * (max - min) / 100.0;
+        if [expected, newer]
+            .iter()
+            .any(|pwm| (f32::from(shown) - pwm).abs() <= PER_CAMERA_SCRIPT_PWM_TOLERANCE)
+        {
             self.missed = 0;
             // It answered, so whatever the autopilot reported earlier no longer stops it.
             crate::health::clear_lua_script_failure();
