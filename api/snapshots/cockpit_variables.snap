@@ -1,0 +1,30 @@
+---
+source: backend/libs/br4kcam_manager/src/web/routes/v1/cockpit_ws.rs
+expression: "all.join(\"\\n\")"
+---
+external/4k-cam/00000000-0000-0000-0000-000000000000/connectivity: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/compensation: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/iso: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/max_iso: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/max_shutter: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/mode: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/exposure/shutter: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/lens/focus: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/lens/tilt: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/lens/zoom: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/live/color_temperature: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/live/exposure_error: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/live/exposure_us: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/live/iso: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/live/shutter: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/stream_ok: boolean
+external/4k-cam/00000000-0000-0000-0000-000000000000/white_balance/kelvin: number
+external/4k-cam/00000000-0000-0000-0000-000000000000/white_balance/mode: string
+external/4k-cam/00000000-0000-0000-0000-000000000000/white_balance/scene: string
+external/4k-cam/system/autopilot: string
+external/4k-cam/system/cameras_discovered: number
+external/4k-cam/system/cameras_missing: number
+external/4k-cam/system/lua_script: string
+external/4k-cam/system/lua_scripting_disabled: boolean
+external/4k-cam/system/mcm: string
+external/4k-cam/system/parameters_drifted: boolean

@@ -1,6 +1,6 @@
 ---
 source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
-expression: "cockpit::extras(&cameras)"
+expression: "cockpit::extras(&cameras, false)"
 ---
 {
   "targetSystem": "Cockpit",
@@ -623,6 +623,16 @@ expression: "cockpit::extras(&cameras)"
       ],
       "version": "1.0.0",
       "targetVehicleTypes": []
+    }
+  ],
+  "webSockets": [
+    {
+      "name": "4K Cam state",
+      "path": "/v1/cockpit/ws"
+    },
+    {
+      "name": "4K Cam state and live exposure and color readings",
+      "path": "/v1/cockpit/ws?live=true"
     }
   ]
 }

@@ -1,7 +1,8 @@
 # Public API contract
 
 Other projects depend on the 4K Cam Manager API: Cockpit (widgets, actions and joystick
-suggestions from `cockpit_extras.json`), BlueOS (`register_service`), and third-party
+suggestions from `cockpit_extras.json`, and the data-lake variables of `/cockpit/ws`, which
+operators bind widgets and actions to), BlueOS (`register_service`), and third-party
 tools calling `/v1/camera/control` and `/v1/autopilot/control`. Cockpit also **saves
 the request body of each action** in user configurations, so those bodies have to keep
 working across upgrades, even after we stop generating them.
@@ -19,6 +20,7 @@ snapshots. `cargo test` fails when the code no longer matches them (see
 | `snapshots/<kind>_requests@*.snap` | How the backend understands each recorded request | insta |
 | `snapshots/types_*.snap` | The wire types of requests, responses and WebSocket messages | insta |
 | `snapshots/{cockpit_extras,register_service,info}.snap` | The documents Cockpit and BlueOS fetch | insta |
+| `snapshots/cockpit_variables.snap` | The Cockpit data-lake variables `/cockpit/ws` sends, and their types | insta |
 
 The `types_*` snapshots come from ts-rs, so they inherit its view of serde: optional
 fields that are omitted on the wire show up as `| null`. Read them as a change detector,
