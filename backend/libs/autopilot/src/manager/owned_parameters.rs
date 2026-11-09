@@ -129,7 +129,7 @@ pub(crate) fn push_all_expectations(
     // A fixed-focus lens only has tilt, so it owns nothing else.
     if parameters.has_motorized_lens() {
         camera::push_owned_expectations(parameters, setup, map);
-        script::push_owned_expectations(parameters, map);
+        script::push_owned_expectations(parameters, setup, map);
         focus::push_owned_expectations(parameters, setup, map);
         zoom::push_owned_expectations(parameters, setup, map);
     }

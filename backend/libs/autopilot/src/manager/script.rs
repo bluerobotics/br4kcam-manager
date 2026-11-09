@@ -13,7 +13,7 @@ use crate::{
         Manager, get_output_raw_from_channel,
         plan::{Change, PlannedWrite, Planner},
     },
-    parameters::{ActuatorsParameters, ChannelFunction, ParamType},
+    parameters::{ActuatorsParameters, ParamType, Setup},
 };
 
 // Off the pre-rebrand base: ArduPilot ties each key to a prefix CRC, so a renamed
@@ -192,18 +192,15 @@ impl Manager {
         Ok(autopilot_reboot_required)
     }
 
-    fn script_channel_function() -> ChannelFunction {
-        ChannelFunction::CameraFocus
-    }
-
     fn expect_owned_script_servo_function(
         parameters: &ActuatorsParameters,
+        setup: Setup,
         map: &mut IndexMap<String, ParamType>,
     ) {
         let channel = parameters.script_channel as u8;
         map.insert(
             format!("SERVO{channel}_FUNCTION"),
-            ParamType::INT16(Self::script_channel_function() as i16),
+            ParamType::INT16(parameters.focus_input_function(setup) as i16),
         );
     }
 
@@ -274,15 +271,16 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
         next,
         incoming,
         overwrite,
+        setup,
         ..
     } = *change;
     let mut written = overwrite;
 
     let mut channel_moved = false;
-    if incoming.script_channel.is_some() {
+    if incoming.script_channel.is_some() || change.functions_moved() {
         written |= planner.channel_function(
             next.script_channel,
-            Manager::script_channel_function(),
+            next.focus_input_function(setup),
             overwrite,
         );
         channel_moved = current.script_channel != next.script_channel;
@@ -338,9 +336,10 @@ pub(crate) fn param_writes(
 
 pub(super) fn push_owned_expectations(
     parameters: &ActuatorsParameters,
+    setup: Setup,
     map: &mut IndexMap<String, ParamType>,
 ) {
-    Manager::expect_owned_script_servo_function(parameters, map);
+    Manager::expect_owned_script_servo_function(parameters, setup, map);
     Manager::expect_owned_script_enable(parameters, map);
     Manager::expect_owned_script_gain(parameters, map);
 }
