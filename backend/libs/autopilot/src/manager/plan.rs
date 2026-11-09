@@ -1578,4 +1578,36 @@ mod tests {
             ["BR4KCAM1_ENABLE", "BR4KCAM1_GAIN"]
         );
     }
+
+    #[test]
+    fn nothing_is_planned_before_the_firmware_version_is_read() {
+        let snapshot = set_up(empty(), CAMERA);
+        let unknown = Snapshot {
+            setup: None,
+            ..snapshot
+        };
+
+        let error = plan_apply(
+            &unknown,
+            CAMERA,
+            &config_for(&unknown.saved[&CAMERA]),
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("firmware version"), "{error}");
+        assert!(plan_forget(&unknown, CAMERA).is_err());
+        assert!(
+            plan_apply(
+                &Snapshot {
+                    setup: None,
+                    ..empty()
+                },
+                OTHER,
+                &config_for(&CameraActuators::default()),
+                true
+            )
+            .is_err()
+        );
+    }
 }
