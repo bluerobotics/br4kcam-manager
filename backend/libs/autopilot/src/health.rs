@@ -186,6 +186,16 @@ pub fn parameter_drifts() -> Vec<ParameterDrift> {
     guard.param_drifts.values().cloned().collect()
 }
 
+/// Whether any parameter of `camera_uuid`'s setup drifted, as after an ArduSub update before
+/// the camera's setup is restored.
+pub(crate) fn has_parameter_drift(camera_uuid: &Uuid) -> bool {
+    let guard = health_state().lock().expect("health lock");
+    guard
+        .param_drifts
+        .keys()
+        .any(|(uuid, _)| uuid == camera_uuid)
+}
+
 /// Count a Lua reload triggered by the script no longer answering.
 ///
 /// A reload that works is a working system, so this stays a support counter rather
