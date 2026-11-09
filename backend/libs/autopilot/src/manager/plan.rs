@@ -790,6 +790,32 @@ mod tests {
     }
 
     #[test]
+    fn forgetting_one_camera_leaves_the_other_cameras_setup_and_script() {
+        let snapshot = two_cameras();
+        let (writes, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
+
+        // Only CAM1's channels, camera type and tilt are released.
+        let mut released = names(&writes);
+        released.sort_unstable();
+        assert_eq!(
+            released,
+            [
+                "CAM1_TYPE",
+                "SERVO10_FUNCTION",
+                "SERVO11_FUNCTION",
+                "SERVO12_FUNCTION",
+                "SERVO16_FUNCTION"
+            ]
+        );
+        // The script is rewritten for the camera that stays.
+        let ScriptAction::Write(contents) = script else {
+            panic!("the script must follow the camera that stays");
+        };
+        assert!(contents.contains("BR4KCAM2_"));
+        assert!(!contents.contains("BR4KCAM1_"));
+    }
+
+    #[test]
     fn first_setup_writes_camera_focus_zoom_script_and_tilt() {
         let plan = plan_apply(
             &empty(),
