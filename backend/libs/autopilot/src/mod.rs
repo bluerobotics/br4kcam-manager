@@ -179,6 +179,24 @@ async fn saved_actuators_config(camera_uuid: Uuid) -> Result<Option<api::Actuato
         .map(api::ActuatorsConfig::from))
 }
 
+/// `new_config` over `base`. Calibration points sent replace the base ones, as merge_struct
+/// appends arrays.
+fn merge_config(
+    base: &api::ActuatorsConfig,
+    new_config: &api::ActuatorsConfig,
+) -> Result<api::ActuatorsConfig> {
+    let mut merged = merge_struct::merge(base, new_config).context("Failing to merge structs")?;
+    merged.closest_points = new_config
+        .closest_points
+        .clone()
+        .or_else(|| base.closest_points.clone());
+    merged.furthest_points = new_config
+        .furthest_points
+        .clone()
+        .or_else(|| base.furthest_points.clone());
+    Ok(merged)
+}
+
 /// Settings that applying `next` over `current` would change. A camera with no saved setup
 /// reports a single "Initial hardware setup" entry.
 fn setup_changes(
@@ -497,8 +515,7 @@ pub(crate) async fn control_inner(
                             .get(&camera_uuid)
                             .map(api::ActuatorsConfig::from)
                             .unwrap_or(api::ActuatorsConfig::from(&CameraActuators::default()));
-                        merge_struct::merge(&base_config, new_config)
-                            .context("Failing to merge structs")?
+                        merge_config(&base_config, new_config)?
                     };
                     // A camera with no saved setup gets every parameter written by update_config.
                     manager::Manager::update_config(&camera_uuid, &new_config, false).await
@@ -539,8 +556,7 @@ pub(crate) async fn control_inner(
             let base_config = current
                 .clone()
                 .unwrap_or(api::ActuatorsConfig::from(&CameraActuators::default()));
-            let new_config = merge_struct::merge(&base_config, new_config)
-                .context("Failing to merge structs")?;
+            let new_config = merge_config(&base_config, new_config)?;
             let overwrite = current.is_none();
             let preview = setup_preview(camera_uuid, &current, &new_config, overwrite).await?;
 
