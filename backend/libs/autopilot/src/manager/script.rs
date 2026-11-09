@@ -726,6 +726,13 @@ mod tests {
         assert!(!recovering.update(at(1000), 55.0, shows(10.0), RANGE));
         assert!(!recovering.update(at(2000), 60.0, shows(55.0), RANGE));
         assert!(!recovering.update(at(3000), 65.0, shows(10.0), RANGE));
+
+        // The script was quick and already shows each new command when it is read: never
+        // flagged.
+        let mut quick = PerCameraScriptHealthTracker::default();
+        for (step, focus) in [10.0, 40.0, 70.0, 20.0, 90.0].into_iter().enumerate() {
+            assert!(!quick.update(at(step as u64 * 1000), focus, shows(focus), RANGE));
+        }
     }
 
     #[test]
