@@ -683,6 +683,47 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_script_is_flagged_and_a_running_one_is_not() {
+        const RANGE: (u16, u16) = (870, 2130);
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        // What a running script shows for a focus in %.
+        let shows = |focus: f32| (870.0 + focus * 12.6).round() as u16;
+
+        // It shows each command, once it had time to: never flagged.
+        let mut running = PerCameraScriptHealthTracker::default();
+        for (step, focus) in [10.0, 40.0, 70.0, 20.0, 90.0].into_iter().enumerate() {
+            let previous = if step == 0 {
+                1500
+            } else {
+                shows([10.0, 40.0, 70.0, 20.0][step - 1])
+            };
+            assert!(!running.update(at(step as u64 * 1000), focus, previous, RANGE));
+        }
+
+        // It stopped at 40 %: the channel stays there while the commands go on. The first
+        // command it missed is judged by the next, and flagged on the second miss.
+        let mut stopped = PerCameraScriptHealthTracker::default();
+        assert!(!stopped.update(at(0), 40.0, 1500, RANGE));
+        assert!(!stopped.update(at(1000), 55.0, shows(40.0), RANGE));
+        assert!(!stopped.update(at(2000), 70.0, shows(40.0), RANGE));
+        assert!(stopped.update(at(3000), 20.0, shows(40.0), RANGE));
+        // It starts counting again afterwards.
+        assert!(!stopped.update(at(4000), 30.0, shows(40.0), RANGE));
+
+        // Commands closer than the script period are not judged, a miss then a hit resets.
+        let mut fast = PerCameraScriptHealthTracker::default();
+        for ms in (0..2000).step_by(40) {
+            assert!(!fast.update(at(ms), 50.0 + ms as f32 / 100.0, shows(40.0), RANGE));
+        }
+        let mut recovering = PerCameraScriptHealthTracker::default();
+        assert!(!recovering.update(at(0), 40.0, 1500, RANGE));
+        assert!(!recovering.update(at(1000), 55.0, shows(10.0), RANGE));
+        assert!(!recovering.update(at(2000), 60.0, shows(55.0), RANGE));
+        assert!(!recovering.update(at(3000), 65.0, shows(10.0), RANGE));
+    }
+
+    #[test]
     fn lua_scripts_equivalent_ignores_version_header() {
         let expected = generate_lua_script(&[&CameraActuators::default()]).unwrap();
         let installed = expected.replace(
