@@ -131,7 +131,7 @@ pub(crate) fn push_all_expectations(
         camera::push_owned_expectations(parameters, setup, map);
         script::push_owned_expectations(parameters, map);
         focus::push_owned_expectations(parameters, map);
-        zoom::push_owned_expectations(parameters, map);
+        zoom::push_owned_expectations(parameters, setup, map);
     }
     tilt::push_owned_expectations(parameters, map);
 }

@@ -5,22 +5,19 @@ use crate::{
         Manager,
         plan::{Change, Planner},
     },
-    parameters::{ActuatorsParameters, ChannelFunction, ParamType},
+    parameters::{ActuatorsParameters, ParamType, Setup},
 };
 
 impl Manager {
-    fn zoom_channel_function() -> ChannelFunction {
-        ChannelFunction::CameraZoom
-    }
-
     fn expect_owned_zoom_servo_function(
         parameters: &ActuatorsParameters,
+        setup: Setup,
         map: &mut IndexMap<String, ParamType>,
     ) {
         let channel = parameters.zoom_channel as u8;
         map.insert(
             format!("SERVO{channel}_FUNCTION"),
-            ParamType::INT16(Self::zoom_channel_function() as i16),
+            ParamType::INT16(parameters.zoom_function(setup) as i16),
         );
     }
 }
@@ -33,17 +30,15 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
         next,
         incoming,
         overwrite,
+        setup,
         ..
     } = *change;
     let mut written = overwrite;
 
     let mut channel_moved = false;
-    if incoming.zoom_channel.is_some() {
-        written |= planner.channel_function(
-            next.zoom_channel,
-            Manager::zoom_channel_function(),
-            overwrite,
-        );
+    if incoming.zoom_channel.is_some() || change.functions_moved() {
+        written |=
+            planner.channel_function(next.zoom_channel, next.zoom_function(setup), overwrite);
         channel_moved = current.zoom_channel != next.zoom_channel;
         if overwrite || channel_moved {
             planner.clear_reversed(next.zoom_channel);
@@ -70,7 +65,8 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
 
 pub(super) fn push_owned_expectations(
     parameters: &ActuatorsParameters,
+    setup: Setup,
     map: &mut IndexMap<String, ParamType>,
 ) {
-    Manager::expect_owned_zoom_servo_function(parameters, map);
+    Manager::expect_owned_zoom_servo_function(parameters, setup, map);
 }
