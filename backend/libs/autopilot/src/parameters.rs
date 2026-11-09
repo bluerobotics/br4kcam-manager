@@ -355,7 +355,11 @@ pub enum ChannelFunction {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CameraType {
     None = 0,
+    /// Servo backend: drives ArduPilot's one CameraZoom and CameraFocus functions.
     Servo = 1,
+    /// Scripting backend: ArduPilot routes each command to its camera and keeps its zoom and
+    /// focus for the script.
+    Scripting = 7,
 }
 
 pub const CLOSEST_POINTS: &[api::FocusZoomPoint] = &[
