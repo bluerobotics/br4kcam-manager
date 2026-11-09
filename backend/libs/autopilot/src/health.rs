@@ -978,6 +978,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_drift_is_told_for_its_camera_only() {
+        let _health_tests = lock_health_tests().await;
+        health_reset();
+        let (drifted, other) = (Uuid::from_u128(30), Uuid::from_u128(31));
+        observe_owned_parameter_value(
+            &drifted,
+            "CAM2_TYPE",
+            &ParamType::INT8(1),
+            &ParamType::INT8(7),
+            ObserveSource::Connect,
+        );
+
+        assert!(has_parameter_drift(&drifted));
+        assert!(!has_parameter_drift(&other));
+        health_reset();
+    }
+
+    #[tokio::test]
     async fn a_reflashed_firmware_changes_the_setup() {
         let _health_tests = lock_health_tests().await;
         health_reset();
