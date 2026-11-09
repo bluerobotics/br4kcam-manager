@@ -553,6 +553,11 @@ fn note_statustext(status: &STATUSTEXT_DATA) {
         return;
     }
 
+    report_lua_script_failure(text);
+}
+
+/// Flags the Lua script as failing, with what went wrong, until it is cleared or expires.
+pub(crate) fn report_lua_script_failure(text: &str) {
     let mut guard = health_state().lock().expect("health lock");
     if guard
         .lua_script_failure
@@ -562,7 +567,7 @@ fn note_statustext(status: &STATUSTEXT_DATA) {
         return;
     }
 
-    warn!("Autopilot reported a scripting failure: {text}");
+    warn!("Lua script failing: {text}");
     guard.lua_script_failure = Some((Instant::now(), text.to_owned()));
     drop(guard);
 
