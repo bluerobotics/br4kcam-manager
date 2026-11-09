@@ -46,6 +46,7 @@ pub struct MavlinkComponent {
     receiver_task_handle: tokio::task::JoinHandle<()>,
     params_sync_task_handle: tokio::task::JoinHandle<()>,
     heartbeat_task_handle: tokio::task::JoinHandle<()>,
+    version_watch_task_handle: tokio::task::JoinHandle<()>,
 }
 
 impl MavlinkComponent {
@@ -72,6 +73,7 @@ impl MavlinkComponent {
         crate::health::set_syncing(false);
 
         let params_sync_task_handle = tokio::spawn(Self::params_sync_task(inner.clone()));
+        let version_watch_task_handle = tokio::spawn(Self::version_watch_task(inner.clone()));
 
         Ok(Self {
             inner,
@@ -79,7 +81,70 @@ impl MavlinkComponent {
             receiver_task_handle,
             params_sync_task_handle,
             heartbeat_task_handle,
+            version_watch_task_handle,
         })
+    }
+
+    /// An autopilot whose heartbeat comes back after a silence may run another firmware (a
+    /// reflash from BlueOS), so its version is asked again. A new version re-plans the
+    /// expected setup and re-checks the parameters, as a connect does.
+    #[instrument(level = "debug", skip(inner))]
+    async fn version_watch_task(inner: Arc<ComponentInner>) {
+        const SILENCE: std::time::Duration = std::time::Duration::from_secs(5);
+        let target_system = inner.system_id;
+        let target_component = mavlink::ardupilotmega::MavComponent::MAV_COMP_ID_AUTOPILOT1 as u8;
+        let sender = inner.get_sender().await;
+        let mut receiver = inner.get_receiver().await;
+        let mut last_heartbeat = tokio::time::Instant::now();
+
+        loop {
+            let (header, message) = match receiver.recv().await {
+                Ok(Message::Received(received)) => received,
+                Ok(Message::ToBeSent(_)) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return,
+            };
+            if header.system_id != target_system || header.component_id != target_component {
+                continue;
+            }
+
+            match message {
+                MavMessage::HEARTBEAT(_) => {
+                    if last_heartbeat.elapsed() > SILENCE {
+                        info!("Autopilot heartbeat back after a silence, asking its version again");
+                        let request = MavMessage::AUTOPILOT_VERSION_REQUEST(
+                            mavlink::ardupilotmega::AUTOPILOT_VERSION_REQUEST_DATA {
+                                target_system,
+                                target_component,
+                            },
+                        );
+                        let header = MavHeader {
+                            system_id: inner.system_id,
+                            component_id: inner.component_id,
+                            sequence: 0,
+                        };
+                        if let Err(error) = sender.send(Message::ToBeSent((header, request))) {
+                            warn!("Failed requesting the autopilot version: {error:?}");
+                        }
+                    }
+                    last_heartbeat = tokio::time::Instant::now();
+                }
+                MavMessage::AUTOPILOT_VERSION(data)
+                    if crate::health::note_flight_sw_version(data.flight_sw_version) =>
+                {
+                    info!(
+                        "Autopilot firmware changed to {:#010x}, re-planning the camera setup",
+                        data.flight_sw_version
+                    );
+                    crate::manager::owned_parameters::rebuild().await;
+                    let cache = inner.parameters.read().await;
+                    crate::manager::owned_parameters::observe_cached(
+                        &cache,
+                        ObserveSource::Connect,
+                    );
+                }
+                _ => {}
+            }
+        }
     }
 
     #[instrument(level = "debug", skip(inner))]
@@ -517,6 +582,7 @@ impl Drop for MavlinkComponent {
         self.receiver_task_handle.abort();
         self.heartbeat_task_handle.abort();
         self.params_sync_task_handle.abort();
+        self.version_watch_task_handle.abort();
     }
 }
 
