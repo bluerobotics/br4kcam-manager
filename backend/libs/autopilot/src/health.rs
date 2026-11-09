@@ -64,6 +64,7 @@ struct Health {
     param_drifts: IndexMap<(Uuid, String), ParameterDrift>,
     script_reloads: u32,
     flight_sw_version: Option<u32>,
+    firmware_problem: Option<String>,
     frames_lagged: u64,
     ever_online: bool,
     pending: Option<(AutopilotHealth, Instant)>,
@@ -114,6 +115,7 @@ impl Default for Health {
             param_drifts: IndexMap::new(),
             script_reloads: 0,
             flight_sw_version: None,
+            firmware_problem: None,
             frames_lagged: 0,
             ever_online: false,
             pending: None,
@@ -177,6 +179,16 @@ pub fn lua_script_status() -> (LuaScriptStatus, Option<String>) {
         (LuaScriptStatus::Ok, Some(failure)) => (LuaScriptStatus::Failing, Some(failure)),
         (status, _) => (status, None),
     }
+}
+
+/// Why the autopilot's firmware cannot move two motorized cameras apart, if it cannot.
+pub fn firmware_problem_text() -> Option<String> {
+    ensure_started();
+    health_state()
+        .lock()
+        .expect("health lock")
+        .firmware_problem
+        .clone()
 }
 
 /// Autopilot parameters that no longer match persisted actuator settings.
@@ -303,7 +315,17 @@ pub(crate) fn observe_owned_parameter_value(
 // No ensure_started(): callers are already on the classifier/manager path, and the unit test in manager/script.rs must not spawn background tasks.
 pub(crate) async fn refresh_lua_script_status() {
     let status = crate::manager::Manager::script_status().await;
-    if store_lua_script_status(status) {
+    let motorized = crate::motorized_camera_count().await;
+    let mut changed = store_lua_script_status(status);
+    {
+        let mut guard = health_state().lock().expect("health lock");
+        let problem = firmware_problem(guard.flight_sw_version, motorized);
+        if guard.firmware_problem != problem {
+            guard.firmware_problem = problem;
+            changed = true;
+        }
+    }
+    if changed {
         notify_health();
     }
 }
@@ -329,6 +351,20 @@ pub(crate) fn setup() -> Option<Setup> {
         .expect("health lock")
         .flight_sw_version
         .map(Setup::of_firmware)
+}
+
+/// What is wrong when two motorized cameras are configured on an ArduSub that hands every
+/// zoom and focus command to the first camera, `None` when fine or the version is not known.
+fn firmware_problem(flight_sw_version: Option<u32>, motorized_cameras: usize) -> Option<String> {
+    let version = flight_sw_version?;
+    if motorized_cameras < 2 || Setup::of_firmware(version) == Setup::PerCamera {
+        return None;
+    }
+    // flight_sw_version: major, minor, patch, then the release type.
+    let (major, minor, patch) = (version >> 24, (version >> 16) & 0xff, (version >> 8) & 0xff);
+    Some(format!(
+        "Moving each camera's zoom and focus on its own needs ArduSub 4.8 or newer, this autopilot runs {major}.{minor}.{patch}: the cameras share one zoom and focus. After updating ArduSub, restore the parameters this extension then expects"
+    ))
 }
 
 pub fn diagnostics() -> Diagnostics {
