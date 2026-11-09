@@ -448,7 +448,8 @@ pub(crate) async fn control_inner(
                 }
             };
             // Health check waits for SERVO again — never under MANAGER.write().
-            if focus_was_set {
+            // The shared setup's script maps ArduPilot's CameraFocus, which shows whether it runs.
+            if focus_was_set && crate::health::setup() == Some(parameters::Setup::Shared) {
                 let enabled = {
                     let manager = MANAGER.get().context("Not available")?.read().await;
                     manager
