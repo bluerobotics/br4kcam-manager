@@ -963,6 +963,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_reflashed_firmware_changes_the_setup() {
+        let _health_tests = lock_health_tests().await;
+        health_reset();
+        let (old, new) = (0x0407_02ff, 0x0408_00ff);
+
+        assert!(note_flight_sw_version(new));
+        assert!(
+            !note_flight_sw_version(new),
+            "the same version is no change"
+        );
+        assert_eq!(setup(), Some(Setup::PerCamera));
+        assert!(note_flight_sw_version(old));
+        assert_eq!(setup(), Some(Setup::Shared));
+        health_reset();
+    }
+
+    #[tokio::test]
     async fn parameter_drift_eligibility_and_observe_sources() {
         let _health_tests = lock_health_tests().await;
         health_reset();
