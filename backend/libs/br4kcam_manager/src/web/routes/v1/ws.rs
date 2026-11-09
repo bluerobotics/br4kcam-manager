@@ -769,6 +769,9 @@ pub async fn handle_request(request: WsRequest) -> WsResponse {
                 Err(error) => WsResponse::new(id, error.status, Value::String(error.message)),
             }
         }
-        _ => WsResponse::new(id, 404, Value::String("not found".to_string())),
+        (method, path) => match super::pro::ws_request(method, path, request.body).await {
+            Some((status, body)) => WsResponse::new(id, status, body),
+            None => WsResponse::new(id, 404, Value::String("not found".to_string())),
+        },
     }
 }

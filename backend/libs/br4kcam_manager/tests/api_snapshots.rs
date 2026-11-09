@@ -20,6 +20,7 @@ use axum::{
 use br4kcam_api::{
     CameraStateEvent, ConnectionStats, SystemHealth, WsClientMessage, WsEvent, WsRequest,
     WsResponse, events,
+    pro::{ProCapabilities, ProSettings, ProState},
 };
 use br4kcam_commands::CameraControl;
 use br4kcam_manager::web::routes::{
@@ -265,6 +266,14 @@ fn wire_types() {
                 types.visit::<ConnectionStats>();
             })
         );
+        assert_snapshot!(
+            "types_pro",
+            declarations(&numeric_enums, |types| {
+                types.visit::<ProState>();
+                types.visit::<ProSettings>();
+                types.visit::<ProCapabilities>();
+            })
+        );
     });
 }
 
@@ -385,6 +394,11 @@ fn autopilot_control_requests() {
 }
 
 #[test]
+fn pro_settings_requests() {
+    assert_recorded_requests::<ProSettings>("pro_settings");
+}
+
+#[test]
 fn ws_client_message_requests() {
     assert_recorded_requests::<WsClientMessage>("ws_client_message");
 }
@@ -397,9 +411,17 @@ async fn http_route_exists(method: &Method, path: &str) -> bool {
     if method == Method::GET {
         // GET handlers only read. A missing route falls through to the embedded
         // frontend, which answers 404.
+        // Routes taking a camera UUID answer 404 "unknown camera" for one that is not
+        // there, which still means the route exists.
         let request = Request::get(path).body(Body::empty()).unwrap();
         let response = app.oneshot(request).await.unwrap();
-        return response.status() != StatusCode::NOT_FOUND;
+        if response.status() != StatusCode::NOT_FOUND {
+            return true;
+        }
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        return body.as_ref() == b"unknown camera";
     }
 
     // Ask with a method the route does not serve: axum answers 405 and lists the
@@ -438,7 +460,9 @@ async fn ws_route_exists(method: &str, path: &str) -> bool {
     })
     .await;
 
+    // As over HTTP, an unknown camera's 404 still means the route exists.
     response.status != StatusCode::NOT_FOUND.as_u16()
+        || response.body == Value::String("unknown camera".to_string())
 }
 
 #[tokio::test]

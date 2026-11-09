@@ -1,0 +1,26 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/pro_settings/white_balance_temperature.json
+---
+ProSettings {
+    mode: None,
+    shutter: None,
+    iso: None,
+    max_iso: None,
+    max_shutter: None,
+    exposure_compensation: None,
+    white_balance: Some(
+        Temperature {
+            kelvin: Some(
+                5600,
+            ),
+            scene: Some(
+                GreenWater,
+            ),
+        },
+    ),
+    focus: None,
+    zoom: None,
+    tilt: None,
+}

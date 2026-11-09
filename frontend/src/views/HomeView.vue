@@ -84,7 +84,7 @@
         :button-items="configButtons"
         :theme="theme"
         type="switch"
-        width="156px"
+        width="234px"
       />
     </BlueHeader>
     <div class="health-banners-sticky">
@@ -149,6 +149,14 @@
           :one-push-awb="onePushAwb"
           :backend-connected="backendConnected"
           :welcome-overlay-unblocked="welcomeOverlayUnblocked"
+        />
+      </div>
+      <div v-if="configMode === 'pro'">
+        <ProControls
+          :selected-camera-uuid="selectedCameraUUID"
+          :disabled="cameraBackedControlsDisabled"
+          :one-push-awb="onePushAwb"
+          @error="warningToastMessage = $event"
         />
       </div>
       <div v-if="configMode === 'advanced'">
@@ -246,6 +254,7 @@ import {
   BlueTooltip,
 } from '@bluerobotics/bluevue'
 import ImageTab from '@/components/ImageTab.vue'
+import ProControls from '@/components/ProControls.vue'
 import StreamsTab from '@/components/StreamsTab.vue'
 import H265Suggestion from '@/components/H265Suggestion.vue'
 import FirmwareUpdate from '@/components/FirmwareUpdate.vue'
@@ -574,7 +583,7 @@ watch(
 )
 
 const theme = ref<'light' | 'dark'>('dark')
-const configMode = ref<'basic' | 'advanced'>('basic')
+const configMode = ref<'basic' | 'pro' | 'advanced'>('basic')
 const cameraControls = ref<InstanceType<typeof BasicSettings> | null>(null)
 const uiLoading = ref(false)
 const uiLoadingMessage = ref('Applying settings…')
@@ -627,6 +636,11 @@ const configButtons = [
     tooltip: 'Basic setup for the 4K Cam',
     onSelected: () => (configMode.value = 'basic'),
     preSelected: true,
+  },
+  {
+    name: 'Pro',
+    tooltip: 'Professional camera controls: exposure mode, shutter, ISO, white balance and focus',
+    onSelected: () => (configMode.value = 'pro'),
   },
   {
     name: 'Advanced',
@@ -729,7 +743,7 @@ watch(selectedCameraUUID, (uuid, previousUuid) => {
   }
 })
 
-// Remounted Basic/Advanced tabs start empty; re-subscribe so the backend re-pushes cache.
+// Remounted Basic/Pro/Advanced tabs start empty; re-subscribe so the backend re-pushes cache.
 watch([configMode, tab], () => {
   if (selectedCameraUUID.value) {
     backendClient.refreshCameraSubscription()

@@ -1,0 +1,38 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/pro_settings/manual.json
+---
+ProSettings {
+    mode: Some(
+        Manual,
+    ),
+    shutter: Some(
+        "1/1000",
+    ),
+    iso: Some(
+        800,
+    ),
+    max_iso: None,
+    max_shutter: None,
+    exposure_compensation: None,
+    white_balance: Some(
+        Manual {
+            red: Some(
+                120,
+            ),
+            green: Some(
+                128,
+            ),
+            blue: Some(
+                140,
+            ),
+            scene: None,
+        },
+    ),
+    focus: Some(
+        42.5,
+    ),
+    zoom: None,
+    tilt: None,
+}

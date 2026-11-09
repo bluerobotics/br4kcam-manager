@@ -31,7 +31,12 @@
       theme="dark"
       @update:expanded="panelsOpen.image = $event"
     >
+      <!-- BlueButtonGroup picks its selection only when it mounts (the first button when none
+           is marked), so each group waits for its value and remounts when the value changes:
+           no flash of the first button, and changes made elsewhere show. -->
       <BlueButtonGroup
+        v-if="baseParams.awb_auto_mode != null"
+        :key="`awb-scene-${baseParams.awb_auto_mode}`"
         label="Water environment white balance"
         :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
         :button-items="WhiteBalanceSceneButtonItems"
@@ -39,6 +44,8 @@
         type="switch"
       />
       <BlueButtonGroup
+        v-if="baseParams.auto_awb != null"
+        :key="`awb-mode-${baseParams.auto_awb}`"
         label="White balance mode"
         :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
         :button-items="whiteBalanceModeButtonItems"
@@ -90,6 +97,22 @@
           @update:model-value="updateBaseParameter('awb_blue', $event as number)"
         />
       </div>
+      <BlueSlider
+        v-if="baseParams.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature"
+        :model-value="baseParams.wb_temp ?? WB_TEMP_RANGE.min"
+        :disabled="isConfigured !== true || cameraControlsDisabled || wbBusy"
+        name="wb-temp"
+        label="Temperature"
+        :min="WB_TEMP_RANGE.min"
+        :max="WB_TEMP_RANGE.max"
+        :step="100"
+        :keyboard-step-multiplier-limit="10"
+        :format-display="(kelvin: number) => `${Math.round(kelvin)} K`"
+        theme="dark"
+        value-weight="regular"
+        label-width="130px"
+        @update:model-value="updateBaseParameter('wb_temp', $event as number)"
+      />
     </BlueExpansiblePanel>
     <BlueExpansiblePanel
       title="Actuators"
@@ -750,11 +773,11 @@ import {
   BlueExpansiblePanel,
   BlueIcon,
   BlueInput,
-  BlueSelect,
   BlueSlider,
   BlueSwitch,
   BlueTooltip,
 } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import { type BaseParameterSetting, type VideoParameterSettings, type VideoResolutionValue, BaseAutoWhiteBalanceModeValue, BaseAutoWhiteBalanceSceneValue, type AdvancedParameterSetting, type CameraControl } from '@/bindings/br4kcam'
 import { backendClient } from '@/utils/backendClient'
 import {
@@ -826,6 +849,7 @@ const baseParams = ref<BaseParameterSetting>({
   awb_green: null,
   awb_blue: null,
   awb_auto_mode: null,
+  wb_temp: null,
   awb_style_red: null,
   awb_style_green: null,
   awb_style_blue: null,
@@ -1244,11 +1268,28 @@ const WhiteBalanceSceneButtonItems = computed(() => [
   }
 ])
 
+/** The camera's colour temperatures for its Temperature white balance (firmware: 1500-15000 K). */
+const WB_TEMP_RANGE = { min: 1500, max: 15000 }
+/** Daylight, for a camera holding no temperature in range. */
+const WB_TEMP_DEFAULT = 5500
+
 const whiteBalanceModeButtonItems = computed(() => [
   { 
     name: 'Auto',
     preSelected: baseParams.value.auto_awb === BaseAutoWhiteBalanceModeValue.Auto,
     onSelected: () => (updateBaseParameter('auto_awb', BaseAutoWhiteBalanceModeValue.Auto))
+  },
+  {
+    name: 'Kelvin',
+    preSelected: baseParams.value.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature,
+    onSelected: () => {
+      // The camera would apply a temperature it holds out of range clamped (0 reads 1500 K).
+      const kelvin = baseParams.value.wb_temp
+      if (kelvin == null || kelvin < WB_TEMP_RANGE.min || kelvin > WB_TEMP_RANGE.max) {
+        updateBaseParameter('wb_temp', WB_TEMP_DEFAULT)
+      }
+      updateBaseParameter('auto_awb', BaseAutoWhiteBalanceModeValue.Temperature)
+    },
   },
   { 
     name: 'Manual',
@@ -1805,36 +1846,6 @@ const handleChannelChanges = (param: keyof ActuatorsParametersConfig, value: any
   }
 
   intendedFocusAndZoomParams.value[param] = value
-}
-
-const getBaseParameters = () => {
-  if (!props.selectedCameraUuid || props.disabled) {
-    return
-  }
-
-  const cameraUuid = props.selectedCameraUuid
-  const generation = actuatorsRequestGeneration.value
-  const payload = {
-    camera_uuid: cameraUuid,
-    action: "getImageAdjustment",
-  }
-
-  backendClient.request('POST', '/camera/control', payload)
-    .then(data => {
-      if (
-        props.selectedCameraUuid !== cameraUuid ||
-        generation !== actuatorsRequestGeneration.value
-      ) {
-        return
-      }
-      baseParams.value = pendingBase.mergeRemote(
-        data as BaseParameterSetting,
-      )
-      console.log(data)
-    })
-    .catch(error => {
-      console.error(`Error sending getImageAdjustment request:`, error.message)
-    })
 }
 
 const updateVideoParameters = async (

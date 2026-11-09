@@ -45,6 +45,10 @@ pub enum Action {
     GetImageAdjustment,
     #[serde(rename = "getImageAdjustmentEx")]
     GetImageAdjustmentEx,
+    /// What the image pipeline is applying now, as text (exposure time, gains, ISO, color
+    /// temperature).
+    #[serde(rename = "getISPInfo")]
+    GetIspInfo,
     #[serde(rename = "getVencConf")]
     GetVideoParameterSettings(VideoParameterSettings),
     #[serde(rename = "setImageAdjustment")]

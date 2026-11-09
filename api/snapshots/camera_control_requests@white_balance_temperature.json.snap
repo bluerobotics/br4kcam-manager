@@ -1,0 +1,49 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/camera_control/white_balance_temperature.json
+---
+CameraControl {
+    camera_uuid: 5b1c6a6c-3f5e-4d1e-9a3f-8a7d0e2b1c34,
+    action: SetImageAdjustment(
+        BaseParameterSetting {
+            hue: None,
+            brightness: None,
+            sharpness: None,
+            contrast: None,
+            saturation: None,
+            gamma: None,
+            blc_level: None,
+            max_exposure: None,
+            set_default: None,
+            anti_fog: None,
+            frame_turbo_pro: None,
+            scene_mode: None,
+            auto_exposure_strategy_mode: None,
+            auto_exposure_ex: None,
+            exposure_time: None,
+            auto_awb: Some(
+                Temperature,
+            ),
+            awb_red: None,
+            awb_green: None,
+            awb_blue: None,
+            awb_auto_mode: None,
+            wb_temp: Some(
+                5600,
+            ),
+            awb_style_red: None,
+            awb_style_green: None,
+            awb_style_blue: None,
+            auto_gain_mode: None,
+            auto_d_gain_max: None,
+            auto_a_gain_max: None,
+            max_sys_gain: None,
+            manual_a_gain_enable: None,
+            manual_a_gain: None,
+            manual_d_gain_enable: None,
+            manual_d_gain: None,
+            rotate: None,
+        },
+    ),
+}
