@@ -39,6 +39,9 @@ const SCRIPT_HEALTH_STALE_THRESHOLD: u8 = 3;
 /// How long the per-camera script gets to show a focus command on its channel, it runs every
 /// 100 ms.
 const PER_CAMERA_SCRIPT_SETTLE: Duration = Duration::from_millis(500);
+/// A focus command older than this is not judged: the focus may have been sent since around
+/// the manager (a ground station, a joystick), so the channel no longer has to show it.
+const PER_CAMERA_SCRIPT_JUDGE_WITHIN: Duration = Duration::from_secs(3);
 /// Commands in a row the per-camera script did not show before it is called stuck.
 const PER_CAMERA_SCRIPT_STALE_THRESHOLD: u8 = 2;
 /// The channel is compared in PWM, which the script rounds to the microsecond.
@@ -426,14 +429,15 @@ pub(crate) struct PerCameraScriptHealthTracker {
 impl PerCameraScriptHealthTracker {
     /// A new focus command, `focus` in %, while the script channel reads `shown` PWM, within
     /// `range` (min, max). The channel is judged against the command before this one, once
-    /// the script had time to follow it. A channel already showing this command counts as
-    /// shown too: `shown` is read after this command went out. Returns `true` when the script
-    /// has not shown the last few commands, so it is stopped or stuck.
+    /// the script had time to follow it, and while it is recent. A channel already showing this
+    /// command counts as shown too: `shown` is read after this command went out. Returns `true`
+    /// when the script has not shown the last few commands, so it is stopped or stuck.
     fn update(&mut self, now: Instant, focus: f32, shown: u16, range: (u16, u16)) -> bool {
         let previous = self.last.replace((focus, now));
-        let Some((asked, at)) =
-            previous.filter(|(_, at)| now.duration_since(*at) >= PER_CAMERA_SCRIPT_SETTLE)
-        else {
+        let Some((asked, at)) = previous.filter(|(_, at)| {
+            (PER_CAMERA_SCRIPT_SETTLE..=PER_CAMERA_SCRIPT_JUDGE_WITHIN)
+                .contains(&now.duration_since(*at))
+        }) else {
             return false;
         };
 
