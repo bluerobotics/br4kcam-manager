@@ -535,6 +535,7 @@ pub async fn init(
         let _apply = CONFIG_APPLY.lock().await;
         let mut guard = manager.write().await;
         guard.autopilot_scripts_file = autopilot_scripts_file.clone();
+        guard.script_health = ScriptHealthTracker::default();
         guard.settings = settings;
     } else {
         MANAGER.get_or_init(|| {
