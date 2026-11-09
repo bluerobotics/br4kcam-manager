@@ -671,8 +671,29 @@ mod tests {
 
     use super::{
         ACTUATORS_NOT_CONFIGURED, CameraActuators, api, changed_parameters,
-        error_indicates_actuators_not_configured, setup_changes,
+        error_indicates_actuators_not_configured, merge_config, setup_changes,
     };
+
+    #[test]
+    fn merged_calibration_points_replace_the_saved_ones() {
+        let saved = api::ActuatorsConfig::from(&CameraActuators::default());
+
+        // The saved config sent back changes nothing.
+        let merged = merge_config(&saved, &saved).unwrap();
+        assert_eq!(merged.closest_points, saved.closest_points);
+        assert_eq!(merged.furthest_points, saved.furthest_points);
+
+        // Points sent replace the saved ones, and points not sent keep them.
+        let mut new_config = api::ActuatorsConfig {
+            parameters: None,
+            closest_points: saved.closest_points.clone(),
+            furthest_points: None,
+        };
+        new_config.closest_points.as_mut().unwrap().0.truncate(2);
+        let merged = merge_config(&saved, &new_config).unwrap();
+        assert_eq!(merged.closest_points, new_config.closest_points);
+        assert_eq!(merged.furthest_points, saved.furthest_points);
+    }
 
     #[test]
     fn changed_parameters_lists_only_differences() {
