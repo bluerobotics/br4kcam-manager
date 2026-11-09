@@ -822,6 +822,20 @@ mod tests {
             sim
         }
 
+        /// A command to a Servo camera: ArduPilot drives its one CameraFocus and CameraZoom,
+        /// on the default ranges, whichever camera it reaches. Then a run.
+        fn servo_command(&mut self, focus: f64, zoom: f64) {
+            self.lua
+                .load(format!(
+                    "OUT[92] = {}; OUT[180] = {}",
+                    focus_input_pwm(focus),
+                    zoom_pwm(zoom)
+                ))
+                .exec()
+                .unwrap();
+            self.tick();
+        }
+
         /// Runs the script once, 100 ms (its period) after the last run.
         fn tick(&mut self) {
             self.lua
@@ -883,6 +897,10 @@ mod tests {
     // Zoom pwm 935 to 1850 and focus input pwm 870 to 2130, as the defaults.
     fn zoom_pwm(percent: f64) -> i64 {
         (935.0 + percent * (1850.0 - 935.0) / 100.0).round() as i64
+    }
+
+    fn focus_input_pwm(percent: f64) -> i64 {
+        (870.0 + percent * (2130.0 - 870.0) / 100.0).round() as i64
     }
 
     #[test]
@@ -1144,5 +1162,113 @@ mod tests {
         for _ in 0..5 {
             assert!(!idle.update(1500, 900));
         }
+    }
+
+    /// For CameraFocus and CameraZoom at each (focus, zoom) %, what origin/master's one-camera
+    /// script (e4644e59) writes to the focus servo of a camera on the default calibration, with
+    /// gain 1 and with gain 1.5.
+    const SHARED_SCRIPT_FOCUS: [((f64, f64), i64, i64); 3] = [
+        ((30.0, 0.0), 975, 981),
+        ((70.0, 60.0), 1218, 1146),
+        ((50.0, 100.0), 1953, 1862),
+    ];
+
+    #[test]
+    fn servo_cameras_are_driven_as_the_shared_setups_script_drives_them() {
+        // Before ArduSub 4.8, or after an update before the cameras are set up again: both are
+        // Servo cameras, and ArduPilot drives the one CameraFocus and CameraZoom, so both follow
+        // every command. Each focus servo on its own function follows its own calibration.
+        let [first, mut second] = both();
+        second.parameters.focus_margin_gain = 1.5;
+        second.parameters.script_function = api::ScriptFunction::SCRIPT2;
+        let mut sim = Sim::with(&[(&first, Setup::Shared), (&second, Setup::Shared)]);
+        // After a boot they start at their trims: zoom 935 (its minimum), focus input 1500.
+        assert_eq!(sim.global::<f64>("SCALED[180]"), 0.0);
+        assert_eq!(sim.global::<f64>("SCALED[92]"), 500.0);
+        for ((focus, zoom), gain_1, gain_1_5) in SHARED_SCRIPT_FOCUS {
+            sim.servo_command(focus, zoom);
+            assert_eq!(sim.outputs(0)[1], Some(gain_1), "{focus} {zoom}");
+            assert_eq!(sim.outputs(1)[1], Some(gain_1_5), "{focus} {zoom}");
+        }
+        assert_eq!(sim.global::<i64>("#TEXTS"), 0);
+    }
+
+    #[test]
+    fn servo_cameras_sharing_one_focus_function_drive_it_once_from_the_first() {
+        // origin/master's default: both focus servos on Script1. ArduPilot gives both cameras
+        // the same CameraFocus and CameraZoom, so one calibration drives the one function, the
+        // first camera's, and the run never writes it twice (the simulation fails on that).
+        let [first, mut second] = both();
+        second.parameters.focus_margin_gain = 1.5;
+        let mut sim = Sim::with(&[(&second, Setup::Shared), (&first, Setup::Shared)]);
+        for ((focus, zoom), gain_1, _) in SHARED_SCRIPT_FOCUS {
+            sim.servo_command(focus, zoom);
+            assert_eq!(sim.outputs(0)[1], Some(gain_1), "{focus} {zoom}");
+            assert_eq!(sim.outputs(1)[1], Some(gain_1), "{focus} {zoom}");
+        }
+    }
+
+    #[test]
+    fn a_servo_camera_and_a_scripting_one_each_follow_their_own_commands() {
+        // One camera set up again after an ArduSub update, the other not yet.
+        let [first, second] = both();
+        let mut sim = Sim::with(&[(&first, Setup::Shared), (&second, Setup::PerCamera)]);
+        let rest_second = sim.outputs(1);
+
+        let ((focus, zoom), gain_1, _) = SHARED_SCRIPT_FOCUS[1];
+        sim.servo_command(focus, zoom);
+        assert_eq!(sim.outputs(0)[1], Some(gain_1));
+        assert_eq!(sim.outputs(1), rest_second);
+
+        let first_held = sim.outputs(0);
+        sim.zoom(80.0, 2);
+        sim.focus(20.0, 2);
+        assert_eq!(sim.outputs(1)[0], Some(zoom_pwm(80.0)));
+        assert_eq!(sim.outputs(1)[2], Some(focus_input_pwm(20.0)));
+        assert_eq!(sim.outputs(0), first_held);
+    }
+
+    #[test]
+    fn a_servo_camera_never_drives_a_function_a_scripting_camera_owns() {
+        // CAM1 set up again owns Script1 to Script3, while CAM2's focus servo is still on
+        // Script1 from the shared setup: CAM2's commands must not move CAM1's focus.
+        let [first, second] = both();
+        let mut sim = Sim::with(&[(&first, Setup::PerCamera), (&second, Setup::Shared)]);
+        sim.focus(30.0, 1);
+        sim.zoom(60.0, 1);
+        let held = sim.outputs(0);
+
+        sim.servo_command(90.0, 90.0);
+        sim.tick();
+        assert_eq!(sim.outputs(0), held);
+    }
+
+    #[test]
+    fn a_camera_with_its_setup_partly_applied_holds_still() {
+        let [first, second] = both();
+
+        // The Scripting type, but still the shared functions: no Script2 or Script3 to drive.
+        let mut sim = Sim::with(&[(&first, Setup::Shared), (&second, Setup::PerCamera)]);
+        sim.lua.load("PARAMS.CAM1_TYPE = 7").exec().unwrap();
+        let held = sim.outputs(0)[1];
+        sim.servo_command(30.0, 40.0);
+        sim.servo_command(80.0, 90.0);
+        // Its focus servo is no longer driven (zoom and focus input are ArduPilot's own here).
+        assert_eq!(sim.outputs(0)[1], held);
+        assert!(
+            sim.global::<String>("TEXTS[1]")
+                .contains("servo function not found")
+        );
+        // The other camera goes on.
+        sim.zoom(70.0, 2);
+        assert_eq!(sim.outputs(1)[0], Some(zoom_pwm(70.0)));
+
+        // The per-camera functions, but still the Servo type: no CameraFocus to follow.
+        let mut sim = Sim::with(&[(&first, Setup::PerCamera)]);
+        sim.focus(40.0, 1);
+        let held = sim.outputs(0);
+        sim.lua.load("PARAMS.CAM1_TYPE = 1").exec().unwrap();
+        sim.servo_command(80.0, 90.0);
+        assert_eq!(sim.outputs(0), held);
     }
 }
