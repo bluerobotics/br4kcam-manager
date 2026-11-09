@@ -92,6 +92,7 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
         incoming,
         overwrite,
         camera_moved,
+        ..
     } = *change;
     let mut written = overwrite;
 
