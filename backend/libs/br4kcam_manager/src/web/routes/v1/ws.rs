@@ -24,13 +24,13 @@ use uuid::Uuid;
 use crate::web::ws_connections::ConnectionId;
 use crate::web::{self, camera_state, camera_ui, connectivity, control_bridge, ws_connections};
 
-const PING_INTERVAL: Duration = Duration::from_secs(30);
+pub(super) const PING_INTERVAL: Duration = Duration::from_secs(30);
 /// Drop the connection when no pong has arrived within this wall-clock duration.
-const PONG_TIMEOUT: Duration = Duration::from_secs(90);
+pub(super) const PONG_TIMEOUT: Duration = Duration::from_secs(90);
 /// Bound socket writes so a half-open TCP peer cannot stall cleanup forever.
-const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 const STATS_INTERVAL: Duration = Duration::from_secs(5);
-const HEALTH_INTERVAL: Duration = Duration::from_secs(15);
+pub(super) const HEALTH_INTERVAL: Duration = Duration::from_secs(15);
 /// Outbound queue depth; the select loop drains it, so a full queue means a stuck client.
 const RESPONSE_QUEUE: usize = 64;
 /// Upper bound on concurrent request handlers per connection.
@@ -39,7 +39,7 @@ const MAX_INFLIGHT_REQUESTS: usize = 8;
 const MAX_INFLIGHT_SNAPSHOTS: usize = 4;
 
 /// Unregisters the connection on drop so panics cannot leak entries.
-struct ConnectionGuard(ConnectionId);
+pub(super) struct ConnectionGuard(pub(super) ConnectionId);
 
 /// Clears the lag-recovery flag when the recovery task ends or panics.
 struct LagGuard {
@@ -67,7 +67,7 @@ impl Drop for LagGuard {
 
 /// Why an outbound WebSocket message was not delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SendFailure {
+pub(super) enum SendFailure {
     /// The payload could not be serialized; the socket is still usable.
     Serialize,
     /// The socket write failed; the connection is gone.
@@ -671,7 +671,7 @@ fn queue_subscribe_rejected(
 }
 
 #[instrument(level = "debug", skip_all, fields(%connection_id, bytes = text.len()))]
-async fn send_text(
+pub(super) async fn send_text(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     connection_id: ConnectionId,
     text: String,
@@ -694,7 +694,7 @@ async fn send_text(
 }
 
 #[instrument(level = "debug", skip_all, fields(%connection_id))]
-async fn send_message(
+pub(super) async fn send_message(
     sender: &mut futures::stream::SplitSink<WebSocket, Message>,
     connection_id: ConnectionId,
     message: Message,
