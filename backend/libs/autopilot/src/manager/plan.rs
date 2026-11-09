@@ -749,6 +749,47 @@ mod tests {
     }
 
     #[test]
+    fn two_cameras_share_no_zoom_or_focus_function() {
+        let snapshot = two_cameras();
+        let mut functions = Vec::new();
+        for uuid in [CAMERA, OTHER] {
+            let parameters = &snapshot.saved[&uuid].parameters;
+            for channel in [
+                parameters.focus_channel,
+                parameters.zoom_channel,
+                parameters.script_channel,
+            ] {
+                let name = servo_param(channel, "FUNCTION");
+                functions.push(held(&snapshot, &name).unwrap() as i16);
+            }
+        }
+
+        // ArduPilot's one global CameraFocus (92) and CameraZoom (180) would move both cameras.
+        assert!(
+            !functions.contains(&92) && !functions.contains(&180),
+            "{functions:?}"
+        );
+        assert!(
+            functions
+                .iter()
+                .all(|function| (94..=109).contains(function))
+        );
+        let mut distinct = functions.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), functions.len(), "{functions:?}");
+    }
+
+    #[test]
+    fn each_motorized_camera_gets_the_scripting_camera_type() {
+        // Scripting backend (7): ArduPilot routes a command to the instance in param3 and keeps
+        // its zoom and focus for the script. The servo backend would drive the global functions.
+        let snapshot = two_cameras();
+        assert_eq!(held(&snapshot, "CAM1_TYPE"), Some(7.0));
+        assert_eq!(held(&snapshot, "CAM2_TYPE"), Some(7.0));
+    }
+
+    #[test]
     fn first_setup_writes_camera_focus_zoom_script_and_tilt() {
         let plan = plan_apply(
             &empty(),
@@ -1006,6 +1047,14 @@ mod tests {
             assert!(names.contains(&name), "{name} is not written");
         }
         assert_eq!(written_value(&plan.releases, "CAM1_TYPE"), Some(0.0));
+        // The Script functions follow the camera id: CAM2 owns Script4 to Script6.
+        for (name, function) in [
+            ("SERVO10_FUNCTION", 97.0),
+            ("SERVO11_FUNCTION", 98.0),
+            ("SERVO12_FUNCTION", 99.0),
+        ] {
+            assert_eq!(written_value(&plan.writes, name), Some(function), "{name}");
+        }
         assert!(plan.reboot);
     }
 
