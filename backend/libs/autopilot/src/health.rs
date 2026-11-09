@@ -724,7 +724,7 @@ fn publish_transition(guard: &mut Health, candidate: (AutopilotHealth, Option<St
     let from = guard.state;
     let to = candidate.0;
     if from != to {
-        if to == AutopilotHealth::Online || from == AutopilotHealth::Online {
+        if to == AutopilotHealth::Online {
             info!(?from, ?to, "Autopilot health recovered");
         } else if matches!(to, AutopilotHealth::Syncing) {
             info!(?from, ?to, "Autopilot health syncing");
