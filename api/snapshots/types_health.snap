@@ -45,6 +45,7 @@ export type SystemHealth = {
     lua_scripting_disabled: boolean,
     lua_script: LuaScriptStatus,
     lua_script_detail?: string,
+    firmware_problem?: string,
     parameter_drifts?: Array<ParameterDrift>,
     diagnostics: Diagnostics,
 };
