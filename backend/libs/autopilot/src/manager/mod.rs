@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 use tracing::*;
 use uuid::Uuid;
 
+pub(crate) use script::SCRIPT_STUCK_FAILURE;
 use script::ScriptHealthTracker;
 use settings::MANAGER as SETTINGS_MANAGER;
 

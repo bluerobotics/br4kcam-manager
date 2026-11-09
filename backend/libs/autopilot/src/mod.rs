@@ -430,8 +430,15 @@ pub(crate) async fn control_inner(
                 .request_servo_output_raw()
                 .await
                 .context("Failed waiting for SERVO_OUTPUT_RAW_DATA message")?;
-            let state = {
+            let (state, script_stuck) = {
                 let mut manager = MANAGER.get().context("Not available")?.write().await;
+                let script_stuck = new_state.focus.is_some_and(|focus| {
+                    manager.apply_per_camera_focus_script_health_sample(
+                        &camera_uuid,
+                        focus,
+                        &servo_output_raw,
+                    )
+                });
                 let actuators = manager
                     .settings
                     .actuators
@@ -439,13 +446,14 @@ pub(crate) async fn control_inner(
                     .context(crate::ACTUATORS_NOT_CONFIGURED)?;
                 let measured = manager::actuators_state_from_servo(actuators, &servo_output_raw);
                 let age_after = actuators_watch::last_servo_age(camera_uuid);
-                if !actuators_watch::servo_mark_advanced(age_before, age_after) {
+                let state = if !actuators_watch::servo_mark_advanced(age_before, age_after) {
                     actuators.state = measured;
                     actuators_watch::mark_servo_from_get_state(camera_uuid);
                     measured
                 } else {
                     actuators.state
-                }
+                };
+                (state, script_stuck)
             };
             // Health check waits for SERVO again — never under MANAGER.write().
             // The shared setup's script maps ArduPilot's CameraFocus, which shows whether it runs.
@@ -482,6 +490,17 @@ pub(crate) async fn control_inner(
                         }
                     }
                 }
+            }
+            // The per-camera setup's script, judged above: reloading talks to the autopilot, so
+            // never under MANAGER.write().
+            if script_stuck {
+                warn!("Attempting Lua script reload, it stopped following focus commands");
+                crate::health::note_script_reload();
+                if let Err(error) = crate::mavlink::component()?.reload_lua_scripts(true).await {
+                    error!("Failed to reload Lua scripts: {error:?}");
+                }
+                // After the reload, which forgets the failures it was asked to fix.
+                crate::health::report_lua_script_failure(manager::SCRIPT_STUCK_FAILURE);
             }
             serde_json::to_value(state)?
         }

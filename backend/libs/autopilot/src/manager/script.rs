@@ -43,6 +43,9 @@ const PER_CAMERA_SCRIPT_SETTLE: Duration = Duration::from_millis(500);
 const PER_CAMERA_SCRIPT_STALE_THRESHOLD: u8 = 2;
 /// The channel is compared in PWM, which the script rounds to the microsecond.
 const PER_CAMERA_SCRIPT_PWM_TOLERANCE: f32 = 2.0;
+/// What the health reports when the script stopped following the focus.
+pub(crate) const SCRIPT_STUCK_FAILURE: &str =
+    "The Lua script stopped following the focus commands, reloading it";
 
 // Independent of `CARGO_PKG_VERSION`. Bump only when the template or generation logic
 // changes. Health compares script bodies and ignores the `--- Version:` header line.
