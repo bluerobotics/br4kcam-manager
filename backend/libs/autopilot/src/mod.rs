@@ -81,6 +81,21 @@ pub async fn any_motorized_camera() -> bool {
     }
 }
 
+/// How many cameras with persisted actuator settings have a motorized lens.
+pub async fn motorized_camera_count() -> usize {
+    match MANAGER.get() {
+        Some(manager) => manager
+            .read()
+            .await
+            .settings
+            .actuators
+            .values()
+            .filter(|actuators| actuators.parameters.has_motorized_lens())
+            .count(),
+        None => 0,
+    }
+}
+
 /// UUIDs of every camera with persisted actuator settings, i.e. cameras this
 /// install expects to find. Empty when the manager is not up yet.
 pub async fn configured_cameras() -> Vec<Uuid> {
