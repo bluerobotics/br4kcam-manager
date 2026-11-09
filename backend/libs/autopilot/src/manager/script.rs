@@ -667,4 +667,25 @@ mod tests {
         assert!(!contents.contains("block_command(") && !contents.contains("register_rx_msgid("));
         assert!(contents.contains("get_state(camera.id - 1)"));
     }
+
+    #[test]
+    fn the_shared_setups_script_is_flagged_when_its_output_stays_while_its_input_moves() {
+        let mut running = ScriptHealthTracker::default();
+        for (input, output) in [(1000, 900), (1200, 950), (1400, 1000), (1600, 1050)] {
+            assert!(!running.update(input, output));
+        }
+
+        // Flagged on the third reading in a row, then counting again.
+        let mut stopped = ScriptHealthTracker::default();
+        assert!(!stopped.update(1000, 900));
+        assert!(!stopped.update(1200, 900));
+        assert!(!stopped.update(1400, 900));
+        assert!(stopped.update(1600, 900));
+        assert!(!stopped.update(1800, 900));
+        // An input that does not move says nothing.
+        let mut idle = ScriptHealthTracker::default();
+        for _ in 0..5 {
+            assert!(!idle.update(1500, 900));
+        }
+    }
 }
