@@ -552,7 +552,7 @@ pub(crate) fn plan_apply(
             };
             reboot |= camera::plan(&mut planner, &change);
             reboot |= script::plan(&mut planner, &change);
-            reboot |= focus::plan(&mut planner, &change)?;
+            reboot |= focus::plan(&mut planner, &change);
             reboot |= zoom::plan(&mut planner, &change);
         }
         reboot |= tilt::plan(&mut planner, &change);
