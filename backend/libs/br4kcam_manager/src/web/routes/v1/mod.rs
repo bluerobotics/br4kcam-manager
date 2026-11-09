@@ -13,6 +13,7 @@ use crate::web::{control_bridge, request_restart};
 pub mod blueos;
 pub mod camera;
 pub mod cockpit;
+pub mod cockpit_ws;
 pub mod health;
 pub mod info;
 pub mod log;
@@ -37,6 +38,7 @@ pub fn router() -> Router {
         .route("/service/restart", post(restart))
         .route("/register_service", get(blueos::server_metadata))
         .route("/cockpit_extras.json", get(cockpit::cockpit_extras))
+        .route("/cockpit/ws", get(cockpit_ws::websocket_handler))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
 }
