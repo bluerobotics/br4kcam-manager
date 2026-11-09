@@ -1587,6 +1587,186 @@ mod tests {
         );
     }
 
+    fn fnv(text: &str) -> u64 {
+        text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    fn script_digest(contents: &str) -> String {
+        let body: Vec<&str> = contents
+            .lines()
+            .filter(|line| !line.starts_with("--- Version:"))
+            .collect();
+        format!("{:016x}", fnv(&body.join("\n")))
+    }
+
+    fn describe_writes(writes: &[PlannedWrite]) -> String {
+        writes
+            .iter()
+            .map(|write| {
+                format!(
+                    "{}={}{}",
+                    write.name,
+                    param_display_value(&write.value).unwrap(),
+                    if write.force { "!" } else { "" }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn describe_script(script: &ScriptAction) -> String {
+        match script {
+            ScriptAction::Keep => "keep".to_string(),
+            ScriptAction::Delete => "delete".to_string(),
+            ScriptAction::Write(contents) => format!("write {}", script_digest(contents)),
+        }
+    }
+
+    fn describe_plan(plan: &ApplyPlan) -> String {
+        format!(
+            "writes: {}\nreleases: {}\nscript: {} reload: {} reboot: {}\nafter_reload: {}\n",
+            describe_writes(&plan.writes),
+            describe_writes(&plan.releases),
+            describe_script(&plan.script),
+            plan.reload_scripts,
+            plan.reboot,
+            describe_writes(&plan.after_reload),
+        )
+    }
+
+    /// What the planner does from `start` for two cameras, as text: every write, release and
+    /// script, then what each camera owns and what the autopilot holds.
+    fn transcript(start: Snapshot) -> String {
+        let mut out = String::new();
+        let plan = plan_apply(
+            &start,
+            CAMERA,
+            &config_for(&CameraActuators::default()),
+            true,
+        )
+        .unwrap();
+        out += &format!("## first camera\n{}", describe_plan(&plan));
+        let snapshot = applied(start, CAMERA, &plan);
+
+        let second = parameters(api::ActuatorsParametersConfig {
+            focus_channel: Some(api::ServoChannel::SERVO7),
+            zoom_channel: Some(api::ServoChannel::SERVO8),
+            script_channel: Some(api::ServoChannel::SERVO9),
+            tilt_channel: Some(api::ServoChannel::SERVO15),
+            ..api::ActuatorsParametersConfig::from(&CameraActuators::default().parameters)
+        });
+        let plan = plan_apply(&snapshot, OTHER, &second, false).unwrap();
+        out += &format!("## second camera\n{}", describe_plan(&plan));
+        let snapshot = applied(snapshot, OTHER, &plan);
+
+        let plan = plan_apply(
+            &snapshot,
+            CAMERA,
+            &config_for(&snapshot.saved[&CAMERA]),
+            false,
+        )
+        .unwrap();
+        out += &format!("## first camera again\n{}", describe_plan(&plan));
+        let plan = plan_apply(&snapshot, OTHER, &lens_config(fixed()), false).unwrap();
+        out += &format!("## second camera fixed\n{}", describe_plan(&plan));
+        let plan = plan_apply(
+            &snapshot,
+            CAMERA,
+            &parameters(api::ActuatorsParametersConfig {
+                script_function: Some(api::ScriptFunction::SCRIPT5),
+                ..Default::default()
+            }),
+            false,
+        )
+        .unwrap();
+        out += &format!("## first camera script function\n{}", describe_plan(&plan));
+        let (releases, script) = plan_forget(&snapshot, CAMERA).unwrap().unwrap();
+        out += &format!(
+            "## forget first\nreleases: {}\nscript: {}\n",
+            describe_writes(&releases),
+            describe_script(&script)
+        );
+        for uuid in [CAMERA, OTHER] {
+            let mut owned = IndexMap::new();
+            owned_parameters::push_all_expectations(
+                &snapshot.saved[&uuid].parameters,
+                snapshot.setup.unwrap(),
+                &mut owned,
+            );
+            let mut owned = owned
+                .into_iter()
+                .map(|(name, value)| format!("{name}={}", param_display_value(&value).unwrap()))
+                .collect::<Vec<_>>();
+            owned.sort();
+            out += &format!("## owned {uuid}\n{}\n", owned.join(" "));
+        }
+        out += &format!("## autopilot\n{}\n", {
+            let mut held: Vec<String> = snapshot
+                .autopilot
+                .values()
+                .map(|p| format!("{}={}", p.name, param_display_value(&p.value).unwrap()))
+                .collect();
+            held.sort();
+            held.join(" ")
+        });
+        out
+    }
+
+    /// [`transcript`] from no camera, on an ArduSub before 4.8. The parameters are origin/master
+    /// e4644e59's, as those autopilots run with them and would drift otherwise. The script lines
+    /// are the one script's, which serves every motorized camera: re-applying the first camera
+    /// keeps it and writes no script parameters, and forgetting it rewrites it for the other.
+    const ORIGIN_MASTER_TRANSCRIPT: &str = r"## first camera
+writes: CAM1_TYPE=1! SERVO12_FUNCTION=92! SERVO12_REVERSED=0 SERVO12_MIN=870! SERVO12_TRIM=1500! SERVO12_MAX=2130! SERVO10_FUNCTION=94! SERVO10_REVERSED=0 SERVO10_MIN=870! SERVO10_TRIM=918! SERVO10_MAX=2130! SERVO11_FUNCTION=180! SERVO11_REVERSED=0 SERVO11_MIN=935! SERVO11_TRIM=935! SERVO11_MAX=1850! SERVO16_FUNCTION=7! SERVO16_MIN=865! SERVO16_TRIM=1500! SERVO16_MAX=2250! SERVO16_REVERSED=0! MNT1_TYPE=7! MNT1_PITCH_MIN=-70! MNT1_PITCH_MAX=70! SCR_ENABLE=1!
+releases: 
+script: write 6a79367e304dfee3 reload: false reboot: true
+after_reload: 
+## second camera
+writes: CAM2_TYPE=1! SERVO9_FUNCTION=92! SERVO9_REVERSED=0 SERVO9_MIN=870! SERVO9_TRIM=1500! SERVO9_MAX=2130! SERVO7_FUNCTION=94! SERVO7_REVERSED=0 SERVO7_MIN=870! SERVO7_TRIM=918! SERVO7_MAX=2130! SERVO8_FUNCTION=180! SERVO8_REVERSED=0 SERVO8_MIN=935! SERVO8_TRIM=935! SERVO8_MAX=1850! SERVO15_FUNCTION=13! SERVO15_MIN=865! SERVO15_TRIM=1500! SERVO15_MAX=2250! SERVO15_REVERSED=0! MNT2_TYPE=7! MNT2_PITCH_MIN=-70! MNT2_PITCH_MAX=70! SCR_ENABLE=1!
+releases: 
+script: write 825372c43dc3a241 reload: false reboot: true
+after_reload: 
+## first camera again
+writes: 
+releases: 
+script: keep reload: false reboot: false
+after_reload: 
+## second camera fixed
+writes: 
+releases: CAM2_TYPE=0 SERVO9_FUNCTION=0 SERVO7_FUNCTION=0 SERVO8_FUNCTION=0
+script: write 6a79367e304dfee3 reload: false reboot: true
+after_reload: 
+## first camera script function
+writes: SERVO10_FUNCTION=98 SERVO10_MIN=870! SERVO10_TRIM=918! SERVO10_MAX=2130!
+releases: 
+script: write 11011dbf183d4799 reload: false reboot: true
+after_reload: 
+## forget first
+releases: CAM1_TYPE=0 SERVO12_FUNCTION=0 SERVO10_FUNCTION=0 SERVO11_FUNCTION=0 SERVO16_FUNCTION=0
+script: write 44fd81db30075ae4
+## owned 00000000-0000-0000-0000-0000091a0001
+BR4KCAM1_ENABLE=1 BR4KCAM1_GAIN=1 CAM1_TYPE=1 MNT1_PITCH_MAX=70 MNT1_PITCH_MIN=-70 MNT1_TYPE=7 SERVO10_FUNCTION=94 SERVO11_FUNCTION=180 SERVO12_FUNCTION=92 SERVO16_FUNCTION=7 SERVO16_REVERSED=0
+## owned 00000000-0000-0000-0000-0000091a0002
+BR4KCAM2_ENABLE=1 BR4KCAM2_GAIN=1 CAM2_TYPE=1 MNT2_PITCH_MAX=70 MNT2_PITCH_MIN=-70 MNT2_TYPE=7 SERVO15_FUNCTION=13 SERVO15_REVERSED=0 SERVO7_FUNCTION=94 SERVO8_FUNCTION=180 SERVO9_FUNCTION=92
+## autopilot
+BR4KCAM1_ENABLE=1 BR4KCAM1_GAIN=1 BR4KCAM2_ENABLE=1 BR4KCAM2_GAIN=1 CAM1_TYPE=1 CAM2_TYPE=1 MNT1_PITCH_MAX=70 MNT1_PITCH_MIN=-70 MNT1_TYPE=7 MNT2_PITCH_MAX=70 MNT2_PITCH_MIN=-70 MNT2_TYPE=7 SCR_ENABLE=1 SERVO10_FUNCTION=94 SERVO10_MAX=2130 SERVO10_MIN=870 SERVO10_REVERSED=0 SERVO10_TRIM=918 SERVO11_FUNCTION=180 SERVO11_MAX=1850 SERVO11_MIN=935 SERVO11_REVERSED=0 SERVO11_TRIM=935 SERVO12_FUNCTION=92 SERVO12_MAX=2130 SERVO12_MIN=870 SERVO12_REVERSED=0 SERVO12_TRIM=1500 SERVO15_FUNCTION=13 SERVO15_MAX=2250 SERVO15_MIN=865 SERVO15_REVERSED=0 SERVO15_TRIM=1500 SERVO16_FUNCTION=7 SERVO16_MAX=2250 SERVO16_MIN=865 SERVO16_REVERSED=0 SERVO16_TRIM=1500 SERVO7_FUNCTION=94 SERVO7_MAX=2130 SERVO7_MIN=870 SERVO7_REVERSED=0 SERVO7_TRIM=918 SERVO8_FUNCTION=180 SERVO8_MAX=1850 SERVO8_MIN=935 SERVO8_REVERSED=0 SERVO8_TRIM=935 SERVO9_FUNCTION=92 SERVO9_MAX=2130 SERVO9_MIN=870 SERVO9_REVERSED=0 SERVO9_TRIM=1500
+";
+
+    #[test]
+    fn before_ardusub_4_8_the_setup_is_the_one_origin_master_plans() {
+        let transcript = transcript(shared());
+        for (line, (ours, master)) in transcript
+            .lines()
+            .zip(ORIGIN_MASTER_TRANSCRIPT.lines())
+            .enumerate()
+        {
+            assert_eq!(ours, master, "line {line}");
+        }
+        assert_eq!(transcript, ORIGIN_MASTER_TRANSCRIPT);
+    }
+
     #[test]
     fn nothing_is_planned_before_the_firmware_version_is_read() {
         let snapshot = set_up(empty(), CAMERA);
