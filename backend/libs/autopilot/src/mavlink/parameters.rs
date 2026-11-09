@@ -126,6 +126,8 @@ impl MavlinkComponent {
                 continue;
             };
 
+            crate::health::note_flight_sw_version(data.flight_sw_version);
+
             let encoding_c_cast = data
                 .capabilities
                 .contains(MavProtocolCapability::MAV_PROTOCOL_CAPABILITY_PARAM_ENCODE_C_CAST)
