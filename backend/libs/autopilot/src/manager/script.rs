@@ -737,6 +737,12 @@ mod tests {
         for (step, focus) in [10.0, 40.0, 70.0, 20.0, 90.0].into_iter().enumerate() {
             assert!(!quick.update(at(step as u64 * 1000), focus, shows(focus), RANGE));
         }
+
+        // The focus was sent around the manager between commands far apart: never flagged.
+        let mut elsewhere = PerCameraScriptHealthTracker::default();
+        for (step, focus) in [100.0, 0.0, 100.0, 0.0].into_iter().enumerate() {
+            assert!(!elsewhere.update(at(step as u64 * 12_000), focus, shows(83.0), RANGE));
+        }
     }
 
     #[test]
