@@ -362,6 +362,29 @@ pub enum CameraType {
     Scripting = 7,
 }
 
+/// How the motorized cameras are set up on the autopilot, which its firmware decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setup {
+    /// Before ArduSub 4.8, which hands every zoom and focus command to the first camera: Servo
+    /// cameras on ArduPilot's one CameraZoom and CameraFocus, so every camera moves together.
+    Shared,
+    /// ArduSub 4.8 and newer, which routes the commands by camera id: Scripting cameras, each
+    /// on Script functions of its own.
+    PerCamera,
+}
+
+impl Setup {
+    /// The setup for `AUTOPILOT_VERSION.flight_sw_version` (major, minor, patch, release type).
+    pub fn of_firmware(flight_sw_version: u32) -> Self {
+        // ArduSub 4.8 is the first to route zoom and focus commands by camera id (param3).
+        if flight_sw_version >> 16 >= 0x0408 {
+            Self::PerCamera
+        } else {
+            Self::Shared
+        }
+    }
+}
+
 pub const CLOSEST_POINTS: &[api::FocusZoomPoint] = &[
     api::FocusZoomPoint {
         zoom: 870,
