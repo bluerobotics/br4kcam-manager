@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::{
     actuators_watch::{self, ServoStreamHealth},
     mavlink::{self, Message},
-    parameters::{self, ParamType},
+    parameters::{self, ParamType, Setup},
 };
 
 const FRAME_SILENCE: Duration = Duration::from_secs(5);
@@ -63,6 +63,7 @@ struct Health {
     lua_script_failure: Option<(Instant, String)>,
     param_drifts: IndexMap<(Uuid, String), ParameterDrift>,
     script_reloads: u32,
+    flight_sw_version: Option<u32>,
     frames_lagged: u64,
     ever_online: bool,
     pending: Option<(AutopilotHealth, Instant)>,
@@ -112,6 +113,7 @@ impl Default for Health {
             lua_script_failure: None,
             param_drifts: IndexMap::new(),
             script_reloads: 0,
+            flight_sw_version: None,
             frames_lagged: 0,
             ever_online: false,
             pending: None,
@@ -294,6 +296,29 @@ pub(crate) async fn refresh_lua_script_status() {
     if store_lua_script_status(status) {
         notify_health();
     }
+}
+
+/// Records the autopilot's `AUTOPILOT_VERSION.flight_sw_version`. Returns whether it changed.
+pub(crate) fn note_flight_sw_version(version: u32) -> bool {
+    let changed = health_state()
+        .lock()
+        .expect("health lock")
+        .flight_sw_version
+        .replace(version)
+        != Some(version);
+    if changed {
+        notify_health();
+    }
+    changed
+}
+
+/// The setup the autopilot's firmware takes, `None` until its version is read.
+pub(crate) fn setup() -> Option<Setup> {
+    health_state()
+        .lock()
+        .expect("health lock")
+        .flight_sw_version
+        .map(Setup::of_firmware)
 }
 
 pub fn diagnostics() -> Diagnostics {
