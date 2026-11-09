@@ -7,6 +7,11 @@
 
 -- Usage: change the output controlling focus from CameraFocus to the camera's script function
 --        but assign CameraFocus to any other "Disabled" channel as we need to read it, as it allows fine-tuning
+-- A Scripting camera (CAMn_TYPE 7, ArduSub 4.8+) reads its zoom and focus from its own camera
+-- state instead, and this script also drives its zoom and focus input outputs.
+
+-- ArduPilot's camera library (the cameras below are also called `camera`)
+local ap_camera = camera
 
 -- The cameras this script serves
 local CAMERAS = {
@@ -19,7 +24,12 @@ local CAMERAS = {
         margin_gain = {{ camera.margin_gain }},
         k_script = {{ camera.k_script }},
         script_function_name = "{{ camera.script_function_name }}",
+        k_focus = {{ camera.k_focus }},
+        k_zoom = {{ camera.k_zoom }},
+        k_focus_input = {{ camera.k_focus_input }},
         focus_name = "{{ camera.focus_name }}",
+        zoom_name = "{{ camera.zoom_name }}",
+        focus_input_name = "{{ camera.focus_input_name }}",
         -- Lookup tables for closest and furthest focus points
         closest_points = {{ camera.closest_points }},
         furthest_points = {{ camera.furthest_points }},
@@ -52,6 +62,12 @@ end
 local K_FOCUS = 92
 local K_ZOOM = 180
 local MAV_SEVERITY_WARNING = 4
+local SCRIPTING_CAMERA_TYPE = 7
+-- camera_state_t zoom_type and focus_type (0 until the camera is first commanded)
+local STATE_RATE, STATE_PCT = 1, 2
+local DEFAULT_RATE_PCT_PER_S = 5
+-- A longer gap between two runs is not integrated, so a stalled script does not jump
+local MAX_STEP_S = 1.0
 
 local missing_focus_warned = { false }
 local missing_zoom_warned = { false }
@@ -72,6 +88,21 @@ local function find_servo_function(function_id, function_name, warned_flag)
     end
 
     return channel
+end
+
+-- The MIN, MAX and TRIM of the servo a function is on, or nil
+local function find_servo_range(function_id, function_name, warned_flag)
+    local channel = find_servo_function(function_id, function_name, warned_flag)
+    if channel == nil then return nil end
+    local min = param:get("SERVO" .. channel + 1 .. "_MIN")
+    local max = param:get("SERVO" .. channel + 1 .. "_MAX")
+    local trim = param:get("SERVO" .. channel + 1 .. "_TRIM")
+    if min == nil or max == nil or trim == nil or max <= min then return nil end
+    return { min = min, max = max, trim = trim }
+end
+
+local function is_scripting_camera(camera)
+    return param:get("CAM" .. camera.id .. "_TYPE") == SCRIPTING_CAMERA_TYPE
 end
 
 -- Function to set focus and zoom to trim level
@@ -144,6 +175,71 @@ local function calculate_focus(camera, focus, zoom, margin_gain)
     return math.floor(mid_point + (focus_delta - 0.5) * range)
 end
 
+local function clamp(value, min, max)
+    return math.min(max, math.max(min, value))
+end
+
+-- The next PWM of an output from what its camera was last commanded: a percentage is the
+-- target, a rate (-1 to 1 of `rate_pct_per_s`) moves it over `dt` seconds
+local function follow(pwm, kind, value, range, rate_pct_per_s, dt)
+    if value ~= value then return pwm end -- NaN
+    local span = range.max - range.min
+    if kind == STATE_PCT then
+        return range.min + clamp(value, 0, 100) * span / 100
+    elseif kind == STATE_RATE then
+        return clamp(pwm + clamp(value, -1, 1) * rate_pct_per_s * span / 100 * dt, range.min, range.max)
+    end
+    return pwm
+end
+
+-- Where an output is, or its trim when it has none yet: a script restart keeps the position
+local function current_pwm(function_id, range)
+    local pwm = SRV_Channels:get_output_pwm(function_id)
+    if pwm == nil or pwm < range.min or pwm > range.max then return range.trim end
+    return pwm
+end
+
+-- A Scripting camera: its zoom and focus come from its own camera state
+local function update_scripting_camera(camera, dt)
+    local zoom_range = find_servo_range(camera.k_zoom, camera.zoom_name, camera.missing_script_warned)
+    local input_range = find_servo_range(camera.k_focus_input, camera.focus_input_name, camera.missing_script_warned)
+    if zoom_range == nil or input_range == nil
+        or find_servo_function(camera.k_focus, camera.focus_name, camera.missing_script_warned) == nil then
+        return
+    end
+    camera.zoom_input = camera.zoom_input or current_pwm(camera.k_zoom, zoom_range)
+    camera.focus_input = camera.focus_input or current_pwm(camera.k_focus_input, input_range)
+
+    local state = ap_camera and ap_camera:get_state(camera.id - 1)
+    if state ~= nil then
+        local zoom_rate = param:get("CAM" .. camera.id .. "_ZOM_RAT_MAX") or DEFAULT_RATE_PCT_PER_S
+        local focus_rate = param:get("CAM" .. camera.id .. "_FOC_RAT_MAX") or DEFAULT_RATE_PCT_PER_S
+        camera.zoom_input = follow(camera.zoom_input, state:zoom_type(), state:zoom_value(), zoom_range, zoom_rate, dt)
+        camera.focus_input = follow(camera.focus_input, state:focus_type(), state:focus_value(), input_range, focus_rate, dt)
+    end
+    local zoom_input = math.floor(camera.zoom_input + 0.5)
+    local focus_input = math.floor(camera.focus_input + 0.5)
+
+    -- Retrieve values from parameters
+    local enable_focus_and_zoom_correlation = camera.ENABLE:get()
+    local margin_gain = camera.GAIN:get()
+    if enable_focus_and_zoom_correlation == nil or margin_gain == nil then
+        return
+    end
+
+    -- Computes the output focus
+    local focus_output
+    if enable_focus_and_zoom_correlation ~= 0 then
+        focus_output = calculate_focus(camera, focus_input, zoom_input, margin_gain)
+    else
+        focus_output = focus_input
+    end
+
+    SRV_Channels:set_output_pwm(camera.k_zoom, zoom_input)
+    SRV_Channels:set_output_pwm(camera.k_focus_input, focus_input)
+    SRV_Channels:set_output_pwm(camera.k_focus, focus_output)
+end
+
 -- A Servo camera: its zoom and focus come from ArduPilot's one CameraZoom and CameraFocus.
 -- A focus function already written in this run (`written`) is left alone.
 local function update_servo_camera(camera, written)
@@ -185,11 +281,13 @@ local function update_servo_camera(camera, written)
     written[camera.k_script] = true
 end
 
+local last_ms
+
 function start()
     if millis() <= 100000 then
         local trimmed = {}
         for _, camera in ipairs(CAMERAS) do
-            if not trimmed[camera.k_script] then
+            if not is_scripting_camera(camera) and not trimmed[camera.k_script] then
                 set_zoom_focus_to_trim(camera)
                 trimmed[camera.k_script] = true
             end
@@ -199,9 +297,26 @@ function start()
 end
 
 function update()
-    local written = {}
+    local now_ms = millis():tofloat()
+    local dt = last_ms and clamp((now_ms - last_ms) / 1000, 0, MAX_STEP_S) or 0
+    last_ms = now_ms
+
+    -- CAMn_TYPE as stored: a new type takes effect at the next boot, until then the camera holds.
+    -- A Servo camera never writes a function a Scripting camera owns.
+    local scripting, written = {}, {}
     for _, camera in ipairs(CAMERAS) do
-        update_servo_camera(camera, written)
+        scripting[camera] = is_scripting_camera(camera)
+        if scripting[camera] then
+            written[camera.k_focus], written[camera.k_zoom], written[camera.k_focus_input] = true, true, true
+        end
+    end
+
+    for _, camera in ipairs(CAMERAS) do
+        if scripting[camera] then
+            update_scripting_camera(camera, dt)
+        else
+            update_servo_camera(camera, written)
+        end
     end
 
     return update, 100

@@ -428,9 +428,14 @@ struct LuaCamera {
     param_table_key: u8,
     param_prefix: String,
     margin_gain: f32,
+    k_focus: i16,
+    k_zoom: i16,
+    k_focus_input: i16,
     k_script: i16,
     script_function_name: String,
     focus_name: String,
+    zoom_name: String,
+    focus_input_name: String,
     closest_points: String,
     furthest_points: String,
 }
@@ -442,9 +447,11 @@ fn script_function_name(function: ChannelFunction) -> String {
     )
 }
 
-/// The script. One script serves every motorized camera, so cameras whose focus servos share
-/// one function (the shared setup's default) have one writer. Cameras on one camera id, which
-/// share a mount, share their functions, so only the first is served.
+/// The script, the same on every firmware. One script serves every motorized camera, so cameras
+/// whose focus servos share one function (the shared setup's default) have one writer.
+/// Cameras on one camera id, which share a mount, share their functions, so only the first is
+/// served. A camera on the shared setup's parameters is served as that setup needs, from
+/// `CAMn_TYPE`, so the script does not change when ArduSub is updated.
 fn generate_lua_script(cameras: &[&CameraActuators]) -> Result<String> {
     let mut context = tera::Context::new();
 
@@ -465,17 +472,26 @@ fn generate_lua_script(cameras: &[&CameraActuators]) -> Result<String> {
         .map(|camera| {
             let parameters = &camera.parameters;
             let id = parameters.camera_id as u8;
-            let focus = parameters.focus_function(Setup::PerCamera);
+            let (focus, zoom, input) = (
+                parameters.focus_function(Setup::PerCamera),
+                parameters.zoom_function(Setup::PerCamera),
+                parameters.focus_input_function(Setup::PerCamera),
+            );
             LuaCamera {
                 id,
                 param_table_key: PARAM_TABLE_KEY_BASE + id,
                 param_prefix: format!("\"{PARAM_PREFIX}{id}_\""),
                 margin_gain: parameters.focus_margin_gain,
+                k_focus: focus as i16,
+                k_zoom: zoom as i16,
+                k_focus_input: input as i16,
                 k_script: parameters.focus_function(Setup::Shared) as i16,
                 script_function_name: script_function_name(
                     parameters.focus_function(Setup::Shared),
                 ),
                 focus_name: script_function_name(focus),
+                zoom_name: script_function_name(zoom),
+                focus_input_name: script_function_name(input),
                 closest_points: camera.closest_points.to_lua(),
                 furthest_points: camera.furthest_points.to_lua(),
             }
@@ -572,6 +588,10 @@ mod tests {
         assert!(contents.contains("script_function_name = \"Script1\""));
         assert!(contents.contains("SRV_Channels:set_output_pwm(camera.k_script, script_trim)"));
         assert!(contents.contains("servo function not found"));
+        // The camera's own Script functions: Script1 focus, Script2 zoom, Script3 focus input.
+        assert!(contents.contains("k_focus = 94,"));
+        assert!(contents.contains("k_zoom = 95,"));
+        assert!(contents.contains("k_focus_input = 96,"));
     }
 
     #[test]
