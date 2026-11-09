@@ -3,17 +3,18 @@ use br4kcam_api::LuaScriptStatus;
 use indexmap::IndexMap;
 use mavlink::ardupilotmega::SERVO_OUTPUT_RAW_DATA;
 use mlua::Lua;
+use serde::Serialize;
 use tera::Tera;
 use tracing::*;
 use uuid::Uuid;
 
 use crate::{
-    CameraActuators, api,
+    CameraActuators,
     manager::{
         Manager, get_output_raw_from_channel,
         plan::{Change, PlannedWrite, Planner},
     },
-    parameters::{ActuatorsParameters, ParamType, Setup},
+    parameters::{ActuatorsParameters, ChannelFunction, ParamType, Setup},
 };
 
 // Off the pre-rebrand base: ArduPilot ties each key to a prefix CRC, so a renamed
@@ -36,7 +37,7 @@ const SCRIPT_HEALTH_STALE_THRESHOLD: u8 = 3;
 
 // Independent of `CARGO_PKG_VERSION`. Bump only when the template or generation logic
 // changes. Health compares script bodies and ignores the `--- Version:` header line.
-pub const LUA_SCRIPT_VERSION: &str = "1.0.0";
+pub const LUA_SCRIPT_VERSION: &str = "2.0.0";
 
 impl Manager {
     #[instrument(level = "debug")]
@@ -56,8 +57,14 @@ impl Manager {
                 anyhow::bail!("A fixed-focus lens needs no Lua script");
             }
 
+            let motorized: Vec<&CameraActuators> = manager
+                .settings
+                .actuators
+                .values()
+                .filter(|actuators| actuators.parameters.has_motorized_lens())
+                .collect();
             (
-                generate_checked_lua_script(camera_actuators)?,
+                generate_checked_lua_script(&motorized)?,
                 manager.autopilot_scripts_file.clone(),
             )
         };
@@ -100,9 +107,7 @@ impl Manager {
     ///
     /// Compares generated script bodies (ignoring the stamped `--- Version:` line).
     ///
-    /// ponytail: one script file backs every configured camera, so with more than one
-    /// configured this passes as soon as any of them matches. Upgrade path is one file
-    /// per camera, which the autopilot scripts folder already supports.
+    /// One script serves every motorized camera on every firmware.
     ///
     /// Cameras with a fixed-focus lens need no script, so with only those configured
     /// this is [`LuaScriptStatus::NotNeeded`].
@@ -114,13 +119,17 @@ impl Manager {
 
         let (path, any_configured, expected) = {
             let manager = manager.read().await;
-            let expected: Vec<String> = manager
+            let motorized: Vec<&CameraActuators> = manager
                 .settings
                 .actuators
                 .values()
                 .filter(|actuators| actuators.parameters.has_motorized_lens())
-                .filter_map(|actuators| generate_lua_script(actuators).ok())
                 .collect();
+            let expected: Vec<String> = if motorized.is_empty() {
+                Vec::new()
+            } else {
+                generate_lua_script(&motorized).ok().into_iter().collect()
+            };
             (
                 manager.autopilot_scripts_file.clone(),
                 !manager.settings.actuators.is_empty(),
@@ -405,29 +414,75 @@ pub(super) fn lua_scripts_equivalent(installed: &str, expected: &str) -> bool {
     normalize_lua_script_for_compare(installed) == normalize_lua_script_for_compare(expected)
 }
 
-/// The script for `config`, checked to be valid Lua.
-pub(super) fn generate_checked_lua_script(config: &CameraActuators) -> Result<String> {
-    let contents = generate_lua_script(config)?;
+/// The script for `cameras`, checked to be valid Lua.
+pub(super) fn generate_checked_lua_script(cameras: &[&CameraActuators]) -> Result<String> {
+    let contents = generate_lua_script(cameras)?;
     validate_lua(&contents)?;
     Ok(contents)
 }
 
-fn generate_lua_script(config: &CameraActuators) -> Result<String> {
+/// What the template needs of one camera.
+#[derive(Serialize)]
+struct LuaCamera {
+    id: u8,
+    param_table_key: u8,
+    param_prefix: String,
+    margin_gain: f32,
+    k_script: i16,
+    script_function_name: String,
+    focus_name: String,
+    closest_points: String,
+    furthest_points: String,
+}
+
+fn script_function_name(function: ChannelFunction) -> String {
+    format!(
+        "Script{}",
+        function as i16 - ChannelFunction::Script1 as i16 + 1
+    )
+}
+
+/// The script. One script serves every motorized camera, so cameras whose focus servos share
+/// one function (the shared setup's default) have one writer. Cameras on one camera id, which
+/// share a mount, share their functions, so only the first is served.
+fn generate_lua_script(cameras: &[&CameraActuators]) -> Result<String> {
     let mut context = tera::Context::new();
 
-    let channel = config.parameters.camera_id as u8;
+    let mut cameras: Vec<&CameraActuators> = cameras
+        .iter()
+        .copied()
+        .filter(|camera| camera.parameters.has_motorized_lens())
+        .collect();
+    anyhow::ensure!(
+        !cameras.is_empty(),
+        "No motorized camera needs a Lua script"
+    );
+    cameras.sort_by_key(|camera| camera.parameters.camera_id as u8);
+    cameras.dedup_by_key(|camera| camera.parameters.camera_id as u8);
 
-    let param_table_key = PARAM_TABLE_KEY_BASE + channel;
-    let param_prefix = format!("\"{PARAM_PREFIX}{channel}_\"");
+    let cameras: Vec<LuaCamera> = cameras
+        .into_iter()
+        .map(|camera| {
+            let parameters = &camera.parameters;
+            let id = parameters.camera_id as u8;
+            let focus = parameters.focus_function(Setup::PerCamera);
+            LuaCamera {
+                id,
+                param_table_key: PARAM_TABLE_KEY_BASE + id,
+                param_prefix: format!("\"{PARAM_PREFIX}{id}_\""),
+                margin_gain: parameters.focus_margin_gain,
+                k_script: parameters.focus_function(Setup::Shared) as i16,
+                script_function_name: script_function_name(
+                    parameters.focus_function(Setup::Shared),
+                ),
+                focus_name: script_function_name(focus),
+                closest_points: camera.closest_points.to_lua(),
+                furthest_points: camera.furthest_points.to_lua(),
+            }
+        })
+        .collect();
 
-    context.insert("param_table_key", &param_table_key);
-    context.insert("param_prefix", &param_prefix);
-    context.insert("margin_gain", &{ config.parameters.focus_margin_gain });
-    context.insert("k_script", &(config.parameters.script_function as u8));
-    let script_n = config.parameters.script_function as u8 - api::ScriptFunction::SCRIPT1 as u8 + 1;
-    context.insert("script_function_name", &format!("Script{script_n}"));
-    context.insert("closest_points", &config.closest_points.to_lua());
-    context.insert("furthest_points", &config.furthest_points.to_lua());
+    context.insert("cameras", &cameras);
     context.insert("version", LUA_SCRIPT_VERSION);
 
     let template = include_str!("br4kcam.lua.template");
@@ -494,7 +549,7 @@ mod tests {
 
     #[test]
     fn lua_scripts_equivalent_ignores_version_header() {
-        let expected = generate_lua_script(&CameraActuators::default()).unwrap();
+        let expected = generate_lua_script(&[&CameraActuators::default()]).unwrap();
         let installed = expected.replace(
             &format!("--- Version: {LUA_SCRIPT_VERSION}"),
             "--- Version: 0.3.2",
@@ -504,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_script_generation() {
-        let contents = generate_lua_script(&CameraActuators::default()).unwrap();
+        let contents = generate_lua_script(&[&CameraActuators::default()]).unwrap();
 
         validate_lua(&contents).unwrap();
 
@@ -513,8 +568,9 @@ mod tests {
         assert!(contents.contains(SCRIPT_OWNERSHIP_MARKER));
         assert!(contents.contains("find_servo_function(K_FOCUS, \"CameraFocus\""));
         assert!(contents.contains("find_servo_function(K_ZOOM, \"CameraZoom\""));
-        assert!(contents.contains("find_servo_function(K_SCRIPT, \"Script1\""));
-        assert!(contents.contains("SRV_Channels:set_output_pwm(K_SCRIPT, script_trim)"));
+        assert!(contents.contains("k_script = 94,"));
+        assert!(contents.contains("script_function_name = \"Script1\""));
+        assert!(contents.contains("SRV_Channels:set_output_pwm(camera.k_script, script_trim)"));
         assert!(contents.contains("servo function not found"));
     }
 
@@ -522,11 +578,10 @@ mod tests {
     fn generated_script_uses_configured_script_function() {
         let mut actuators = CameraActuators::default();
         actuators.parameters.script_function = crate::api::ScriptFunction::SCRIPT3;
-        let contents = generate_lua_script(&actuators).unwrap();
+        let contents = generate_lua_script(&[&actuators]).unwrap();
         validate_lua(&contents).unwrap();
-        assert!(contents.contains("local K_SCRIPT = 96"));
-        assert!(contents.contains("find_servo_function(K_SCRIPT, \"Script3\""));
-        assert!(!contents.contains("\"Script1\""));
+        assert!(contents.contains("k_script = 96,"));
+        assert!(contents.contains("script_function_name = \"Script3\""));
     }
 
     #[test]

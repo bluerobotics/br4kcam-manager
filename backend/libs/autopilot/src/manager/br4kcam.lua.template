@@ -5,35 +5,56 @@
 --- For more information, visit https://github.com/BlueRobotics/br4kcam-manager
 --- Version: {{ version }}
 
--- Usage: change the output controlling focus from CameraFocus to "{{ script_function_name }}"
+-- Usage: change the output controlling focus from CameraFocus to the camera's script function
 --        but assign CameraFocus to any other "Disabled" channel as we need to read it, as it allows fine-tuning
 
--- Unique key (0-200). Must not conflict with other scripts
-local PARAM_TABLE_KEY = {{ param_table_key }}
+-- The cameras this script serves
+local CAMERAS = {
+{% for camera in cameras %}    {
+        id = {{ camera.id }},
+        -- Unique key (0-200). Must not conflict with other scripts
+        param_table_key = {{ camera.param_table_key }},
+        -- Prefix for all parameter names in this table
+        param_prefix = {{ camera.param_prefix }},
+        margin_gain = {{ camera.margin_gain }},
+        k_script = {{ camera.k_script }},
+        script_function_name = "{{ camera.script_function_name }}",
+        focus_name = "{{ camera.focus_name }}",
+        -- Lookup tables for closest and furthest focus points
+        closest_points = {{ camera.closest_points }},
+        furthest_points = {{ camera.furthest_points }},
+    },
+{% endfor %}}
 
--- Prefix for all parameter names in this table
-local PARAM_PREFIX = {{ param_prefix }}
+for _, camera in ipairs(CAMERAS) do
+    -- Add parameter table with N parameters
+    assert(param:add_table(camera.param_table_key, camera.param_prefix, 2), 'could not add param table')
 
--- Add parameter table with N parameters
-assert(param:add_table(PARAM_TABLE_KEY, PARAM_PREFIX, 2), 'could not add param table')
+    -- Define parameters with index (1-63), name, and default value
+    assert(param:add_param(camera.param_table_key, 1, "ENABLE", 1), 'could not add ENABLE')
+    assert(param:add_param(camera.param_table_key, 2, "GAIN", camera.margin_gain), 'could not add GAIN')
 
--- Define parameters with index (1-63), name, and default value
-assert(param:add_param(PARAM_TABLE_KEY, 1, "ENABLE", 1), 'could not add ENABLE')
-assert(param:add_param(PARAM_TABLE_KEY, 2, "GAIN", {{ margin_gain }}), 'could not add GAIN')
+    -- Initialize parameter objects
+    camera.ENABLE = Parameter()      -- when false, this bypasses the correlation
+    camera.GAIN = Parameter() -- this will allow us to move 5% beyeond closest/furthest focus lines, useful for making a new curve
 
--- Initialize parameter objects
-local ENABLE = Parameter()      -- when false, this bypasses the correlation
-local GAIN = Parameter() -- this will allow us to move 5% beyeond closest/furthest focus lines, useful for making a new curve
+    -- Bind them to physical parameter locations
+    assert(camera.ENABLE:init(camera.param_prefix .. "ENABLE"), "Failed to init ENABLE")
+    assert(camera.GAIN:init(camera.param_prefix .. "GAIN"), "Failed to init GAIN")
+
+    assert(#camera.closest_points >= 2, "closest_points requires at least 2 points")
+    assert(#camera.furthest_points >= 2, "furthest_points requires at least 2 points")
+
+    camera.missing_script_warned = { false }
+end
 
 --- Constants
 local K_FOCUS = 92
 local K_ZOOM = 180
-local K_SCRIPT = {{ k_script }}
 local MAV_SEVERITY_WARNING = 4
 
 local missing_focus_warned = { false }
 local missing_zoom_warned = { false }
-local missing_script_warned = { false }
 
 local function warn_missing_servo_function(function_name, warned_flag)
     if warned_flag[1] then
@@ -53,19 +74,8 @@ local function find_servo_function(function_id, function_name, warned_flag)
     return channel
 end
 
--- Bind them to physical parameter locations
-assert(ENABLE:init(PARAM_PREFIX .. "ENABLE"), "Failed to init ENABLE")
-assert(GAIN:init(PARAM_PREFIX .. "GAIN"), "Failed to init GAIN")
-
--- Lookup tables for closest and furthest focus points
-local closest_points = {{ closest_points }}
-local furthest_points = {{ furthest_points }}
-
-assert(#closest_points >= 2, "closest_points requires at least 2 points")
-assert(#furthest_points >= 2, "furthest_points requires at least 2 points")
-
 -- Function to set focus and zoom to trim level
-local function set_zoom_focus_to_trim()
+local function set_zoom_focus_to_trim(camera)
     local focus_channel = find_servo_function(K_FOCUS, "CameraFocus", missing_focus_warned)
     if focus_channel == nil then return false end
     local focus_max = param:get("SERVO" .. focus_channel + 1 .. "_MAX")
@@ -84,11 +94,11 @@ local function set_zoom_focus_to_trim()
     local zoom_scaled = 1000 * (zoom_trim - zoom_min) / (zoom_max - zoom_min)
     SRV_Channels:set_output_scaled(K_ZOOM, zoom_scaled)
 
-    local script_channel = find_servo_function(K_SCRIPT, "{{ script_function_name }}", missing_script_warned)
+    local script_channel = find_servo_function(camera.k_script, camera.script_function_name, camera.missing_script_warned)
     if script_channel == nil then return false end
     local script_trim = param:get("SERVO" .. script_channel + 1 .. "_TRIM")
     if script_trim == nil then return false end
-    SRV_Channels:set_output_pwm(K_SCRIPT, script_trim)
+    SRV_Channels:set_output_pwm(camera.k_script, script_trim)
 
     return true
 end
@@ -121,10 +131,10 @@ local function interpolate_focus(zoom, points)
 end
 
 -- Function to calculate focus position based on zoom position
-local function calculate_focus(focus, zoom, margin_gain)
+local function calculate_focus(camera, focus, zoom, margin_gain)
     -- Interpolate both closest and furthest focus values
-    local closest_focus = interpolate_focus(zoom, closest_points)
-    local furthest_focus = interpolate_focus(zoom, furthest_points)
+    local closest_focus = interpolate_focus(zoom, camera.closest_points)
+    local furthest_focus = interpolate_focus(zoom, camera.furthest_points)
 
     -- Linear interpolation between closest and furthest based on focus_delta
     local focus_delta = 0.5 + (focus - 1500) / 400
@@ -134,17 +144,16 @@ local function calculate_focus(focus, zoom, margin_gain)
     return math.floor(mid_point + (focus_delta - 0.5) * range)
 end
 
-function start()
-    if millis() <= 100000 then
-        set_zoom_focus_to_trim()
+-- A Servo camera: its zoom and focus come from ArduPilot's one CameraZoom and CameraFocus.
+-- A focus function already written in this run (`written`) is left alone.
+local function update_servo_camera(camera, written)
+    if written[camera.k_script] then
+        return
     end
-    return update, 100
-end
 
-function update()
     -- Retrieve values from parameters
-    local enable_focus_and_zoom_correlation = ENABLE:get()
-    local margin_gain = GAIN:get()
+    local enable_focus_and_zoom_correlation = camera.ENABLE:get()
+    local margin_gain = camera.GAIN:get()
 
     -- Retrieve user-controlled focus and zoom
     local focus_input = SRV_Channels:get_output_pwm(K_FOCUS)
@@ -160,19 +169,40 @@ function update()
 
     if enable_focus_and_zoom_correlation == nil or margin_gain == nil
         or focus_input == nil or zoom_input == nil then
-        return update, 100
+        return
     end
 
     -- Computes the output focus
     local focus_output
     if enable_focus_and_zoom_correlation ~= 0 then
-        focus_output = calculate_focus(focus_input, zoom_input, margin_gain)
+        focus_output = calculate_focus(camera, focus_input, zoom_input, margin_gain)
     else
         focus_output = focus_input
     end
 
     -- Apply zoom to the output
-    SRV_Channels:set_output_pwm(K_SCRIPT, focus_output)
+    SRV_Channels:set_output_pwm(camera.k_script, focus_output)
+    written[camera.k_script] = true
+end
+
+function start()
+    if millis() <= 100000 then
+        local trimmed = {}
+        for _, camera in ipairs(CAMERAS) do
+            if not trimmed[camera.k_script] then
+                set_zoom_focus_to_trim(camera)
+                trimmed[camera.k_script] = true
+            end
+        end
+    end
+    return update, 100
+end
+
+function update()
+    local written = {}
+    for _, camera in ipairs(CAMERAS) do
+        update_servo_camera(camera, written)
+    end
 
     return update, 100
 end
