@@ -14,6 +14,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use br4kcam_api::CameraStateEvent;
 use br4kcam_api::pro::{
     Aperture, ExposureMode, ExposureWarning, FullGain, MaxIso, ProCapabilities, ProSettings,
     ProState, Range, WhiteBalance, WhiteBalanceScene,
@@ -288,6 +289,33 @@ async fn state(camera_uuid: Uuid) -> Result<ProState, ControlError> {
         (state.focus, state.zoom, state.tilt) = actuators.read(positions);
     }
     Ok(state)
+}
+
+/// [`state`] as the cached `snapshot` has it, without asking the camera or the autopilot: the
+/// settings and the lens positions, none of what the image pipeline reports. `None` before
+/// the image parameters are cached.
+pub(crate) fn cached_state(snapshot: &CameraStateEvent) -> Option<ProState> {
+    let mut state = state_of(snapshot.base_parameters.as_ref()?);
+    let config = snapshot
+        .actuators_config
+        .clone()
+        .and_then(|config| serde_json::from_value::<ActuatorsConfig>(config).ok());
+    if let Some(config) = config {
+        let positions = snapshot
+            .actuators_state
+            .clone()
+            .and_then(|positions| serde_json::from_value(positions).ok())
+            .unwrap_or_default();
+        (state.focus, state.zoom, state.tilt) = Actuators::from_config(&config).read(positions);
+    }
+    Some(state)
+}
+
+/// What the camera's image pipeline reports now, by field name (see [`isp_info`]).
+pub(crate) async fn isp_readings(camera_uuid: Uuid) -> Result<HashMap<String, i64>, ControlError> {
+    read_camera(camera_uuid, CameraAction::GetIspInfo)
+        .await
+        .map(|info| isp_info(&info))
 }
 
 /// Applies `settings`, validating everything before anything is written, and answers the
@@ -976,7 +1004,7 @@ fn apply_isp_info(state: &mut ProState, info: &HashMap<String, i64>) {
 }
 
 /// `"1/<x>"` for an exposure time in microseconds, or whole seconds from one second up.
-fn shutter_of_micros(micros: u64) -> String {
+pub(crate) fn shutter_of_micros(micros: u64) -> String {
     if micros >= 1_000_000 {
         format!("{}", (micros as f64 / 1e6).round())
     } else {
@@ -985,7 +1013,7 @@ fn shutter_of_micros(micros: u64) -> String {
 }
 
 /// The camera's ISO on our scale (see `CAMERA_ISO`), extrapolated past both ends.
-fn iso_of_camera(camera_iso: u64) -> u32 {
+pub(crate) fn iso_of_camera(camera_iso: u64) -> u32 {
     interpolate_iso(
         CAMERA_ISO.map(|(camera, ours)| (camera, ours)),
         camera_iso as f64,
