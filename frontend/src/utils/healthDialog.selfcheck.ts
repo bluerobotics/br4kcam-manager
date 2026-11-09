@@ -195,6 +195,13 @@ function problemCases(): ProblemCase[] {
       }),
       kinds: ['lua_scripting_disabled'],
       degraded: true },
+    { name: 'firmware too old for two cameras after hardware setup',
+      input: baseInput({
+        ...CAMERA,
+        systemHealth: health({ firmware_problem: 'ArduSub 4.7.2 is too old' }),
+      }),
+      kinds: ['autopilot_firmware'],
+      degraded: true },
     { name: 'lua_scripting_disabled ignored before hardware setup',
       input: baseInput({
         ...CAMERA,
@@ -295,6 +302,7 @@ function recoveryCases(): RecoveryCase[] {
     [['camera_stream'], 'Camera video stream restored', 'Camera video stream is running again.'],
     [['camera_onvif_auth'], 'Camera ONVIF login restored', 'ONVIF login succeeded and video is available again.'],
     [['lua_script'], 'Autopilot script updated', 'Autopilot script is up to date.'],
+    [['autopilot_firmware'], 'Autopilot firmware updated', 'The autopilot firmware moves each camera on its own.'],
     [['lua_scripting_disabled'], 'Lua scripting enabled', 'Focus and zoom correlation is ready.'],
     [['parameter_drift'], 'Autopilot parameters restored', 'Autopilot parameters match the saved configuration again.'],
     [['mcm', 'camera'], 'Issues resolved', 'BlueOS video service is back (after about 5 sec). Camera connection is working again.'],
