@@ -13,6 +13,7 @@ export type HealthProblemKind =
   | 'camera_onvif_auth'
   | 'lua_scripting_disabled'
   | 'lua_script'
+  | 'autopilot_firmware'
   | 'parameter_drift'
 
 export type HealthProblem = {
@@ -138,6 +139,16 @@ const KIND_TABLE = {
     recoveryTitle: 'Autopilot script updated',
     recovered: 'Autopilot script is up to date',
   },
+  autopilot_firmware: {
+    selfRecovering: false,
+    recoveryTitle: 'Autopilot firmware updated',
+    recovered: 'The autopilot firmware moves each camera on its own',
+    problem: {
+      severity: 'warning',
+      title: 'Both cameras share one zoom and focus',
+      body: 'Update the ArduSub firmware to 4.8 or newer to move each camera on its own.',
+    },
+  },
   parameter_drift: {
     selfRecovering: false,
     recoveryTitle: 'Autopilot parameters restored',
@@ -209,6 +220,14 @@ export function collectHealthProblems(input: HealthProblemsInput): HealthProblem
 
       const script = luaScriptProblem(health, input.cameraUuid)
       if (script) problems.push(script)
+
+      if (health.firmware_problem) {
+        problems.push({
+          kind: 'autopilot_firmware',
+          ...KIND_TABLE.autopilot_firmware.problem,
+          detail: health.firmware_problem,
+        })
+      }
     }
   }
 
