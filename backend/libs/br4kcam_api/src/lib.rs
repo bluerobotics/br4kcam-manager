@@ -195,6 +195,11 @@ pub struct SystemHealth {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub lua_script_detail: Option<String>,
+    /// Why this autopilot firmware cannot move two motorized cameras apart: it is older than
+    /// ArduSub 4.8 and hands every zoom and focus command to the first camera. `None` when fine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub firmware_problem: Option<String>,
     /// Autopilot parameters that no longer match persisted actuator settings.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
