@@ -5,22 +5,26 @@ use crate::{
         Manager,
         plan::{Change, Planner},
     },
-    parameters::{ActuatorsParameters, CameraType, ParamType},
+    parameters::{ActuatorsParameters, CameraType, ParamType, Setup},
 };
 
 impl Manager {
-    fn enabled_camera_type_value() -> ParamType {
-        ParamType::UINT8(CameraType::Servo as u8)
+    fn enabled_camera_type_value(setup: Setup) -> ParamType {
+        ParamType::UINT8(match setup {
+            Setup::Shared => CameraType::Servo,
+            Setup::PerCamera => CameraType::Scripting,
+        } as u8)
     }
 }
 
-/// `CAM{n}_TYPE`: the camera's id gets the servo camera backend. Returns whether the type is
-/// written.
+/// `CAM{n}_TYPE`: the camera's id gets the servo camera backend, or the scripting one where the
+/// firmware routes each command to its camera. Returns whether the type is written.
 pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
     let Change {
         next,
         incoming,
         overwrite,
+        setup,
         ..
     } = *change;
     let mut written = overwrite;
@@ -29,7 +33,7 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
     if incoming.camera_id.is_some() {
         written |= planner.write_if_needed(
             format!("CAM{}_TYPE", next.camera_id as u8),
-            Manager::enabled_camera_type_value(),
+            Manager::enabled_camera_type_value(setup),
             overwrite,
         );
     }
@@ -39,11 +43,12 @@ pub(super) fn plan(planner: &mut Planner, change: &Change) -> bool {
 
 pub(super) fn push_owned_expectations(
     parameters: &ActuatorsParameters,
+    setup: Setup,
     map: &mut IndexMap<String, ParamType>,
 ) {
     let camera = parameters.camera_id as u8;
     map.insert(
         format!("CAM{camera}_TYPE"),
-        Manager::enabled_camera_type_value(),
+        Manager::enabled_camera_type_value(setup),
     );
 }
