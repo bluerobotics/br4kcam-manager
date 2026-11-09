@@ -1262,4 +1262,22 @@ mod tests {
         crate::manager::owned_parameters::observe_cached(&cache, ObserveSource::Connect);
         assert!(parameter_drifts().is_empty());
     }
+
+    #[test]
+    fn two_motorized_cameras_need_an_ardusub_that_routes_by_camera_id() {
+        // flight_sw_version: 4.7.2 official, 4.8.0 development, 4.8.0 official.
+        let (old, dev, new) = (0x0407_02ff, 0x0408_0000, 0x0408_00ff);
+
+        let problem = firmware_problem(Some(old), 2).expect("4.7.2 cannot route by camera id");
+        assert!(
+            problem.contains("4.8") && problem.contains("4.7.2"),
+            "{problem}"
+        );
+        assert_eq!(firmware_problem(Some(dev), 2), None);
+        assert_eq!(firmware_problem(Some(new), 2), None);
+        // One motorized camera needs no routing, and an unknown version is not a problem.
+        assert_eq!(firmware_problem(Some(old), 1), None);
+        assert_eq!(firmware_problem(Some(old), 0), None);
+        assert_eq!(firmware_problem(None, 2), None);
+    }
 }
