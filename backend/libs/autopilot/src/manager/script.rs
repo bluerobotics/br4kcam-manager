@@ -561,6 +561,8 @@ fn validate_lua(script: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use mlua::{Function, Lua};
+
     use super::*;
     use crate::api;
 
@@ -660,12 +662,467 @@ mod tests {
         ));
     }
 
+    /// ArduPilot's scripting bindings, as the script uses them. `STATES[i]` is the camera_state_t
+    /// of the instance `i` (camera id - 1), `NOW` the time in ms.
+    const AUTOPILOT: &str = r#"
+        OUT, SCALED, CHANNELS, PARAMS, STATES, TEXTS, NOW = {}, {}, {}, {}, {}, {}, 0
+        -- The functions written in the current run: one written twice is the script fighting
+        -- itself, which fails the run.
+        WRITTEN = {}
+        local function ms(value) return type(value) == "table" and value.ms or value end
+        local uint32 = { __le = function(a, b) return ms(a) <= ms(b) end }
+        function millis()
+            return setmetatable({ ms = NOW, tofloat = function() return NOW end }, uint32)
+        end
+        SRV_Channels = {
+            find_channel = function(_, f) return CHANNELS[f] end,
+            set_output_pwm = function(_, f, v)
+                assert(not WRITTEN[f], "function " .. f .. " written twice in one run")
+                WRITTEN[f] = true
+                OUT[f] = v
+            end,
+            -- Only a function on a channel has an output.
+            get_output_pwm = function(_, f) if CHANNELS[f] then return OUT[f] end end,
+            -- Scaled 0 to 1000 over the servo's MIN to MAX, read back as its PWM.
+            set_output_scaled = function(_, f, v)
+                SCALED[f] = v
+                local n = CHANNELS[f] and CHANNELS[f] + 1
+                if n then
+                    local min, max = PARAMS["SERVO" .. n .. "_MIN"], PARAMS["SERVO" .. n .. "_MAX"]
+                    OUT[f] = math.floor(min + v * (max - min) / 1000 + 0.5)
+                end
+            end,
+        }
+        param = {
+            get = function(_, name) return PARAMS[name] end,
+            add_table = function() return true end,
+            add_param = function() return true end,
+        }
+        Parameter = function()
+            return {
+                init = function(self, name) self.name = name; return true end,
+                get = function(self) return PARAMS[self.name] end,
+            }
+        end
+        gcs = { send_text = function(_, _, text) TEXTS[#TEXTS + 1] = text end }
+        camera = {
+            get_state = function(_, instance)
+                local state = STATES[instance]
+                if state == nil then return nil end
+                return {
+                    zoom_type = function() return state.zoom_type end,
+                    zoom_value = function() return state.zoom_value end,
+                    focus_type = function() return state.focus_type end,
+                    focus_value = function() return state.focus_value end,
+                }
+            end,
+        }
+        -- A camera that has not been commanded yet, as ArduPilot zero-initializes it.
+        function state(instance)
+            STATES[instance] = STATES[instance]
+                or { zoom_type = 0, zoom_value = 0, focus_type = 0, focus_value = 0 }
+            return STATES[instance]
+        end
+    "#;
+
+    /// The per-camera setup's script of `cameras` running in a simulated autopilot, each camera
+    /// on its own servos.
+    struct Sim {
+        lua: Lua,
+        update: Function,
+        cameras: Vec<(CameraActuators, Setup)>,
+    }
+
+    /// Puts each camera's servos on its functions in `setup`, as the autopilot holds them.
+    fn put_on_channels(lua: &Lua, camera: &CameraActuators, setup: Setup) {
+        let parameters = &camera.parameters;
+        for (function, channel, min, trim, max) in [
+            (
+                parameters.focus_function(setup),
+                parameters.focus_channel,
+                parameters.focus_channel_min,
+                parameters.focus_channel_trim,
+                parameters.focus_channel_max,
+            ),
+            (
+                parameters.zoom_function(setup),
+                parameters.zoom_channel,
+                parameters.zoom_channel_min,
+                parameters.zoom_channel_trim,
+                parameters.zoom_channel_max,
+            ),
+            (
+                parameters.focus_input_function(setup),
+                parameters.script_channel,
+                parameters.script_channel_min,
+                parameters.script_channel_trim,
+                parameters.script_channel_max,
+            ),
+        ] {
+            let channel_number = channel as u8;
+            lua.load(format!(
+                "CHANNELS[{}] = {}; PARAMS.SERVO{channel_number}_MIN = {min}; \
+                 PARAMS.SERVO{channel_number}_TRIM = {trim}; PARAMS.SERVO{channel_number}_MAX = {max}",
+                function as i16,
+                channel_number - 1,
+            ))
+            .exec()
+            .unwrap();
+        }
+        let id = parameters.camera_id as u8;
+        let camera_type = match setup {
+            Setup::Shared => 1,
+            Setup::PerCamera => 7,
+        };
+        lua.load(format!(
+            "PARAMS.BR4KCAM{id}_ENABLE = {}; PARAMS.BR4KCAM{id}_GAIN = {}; PARAMS.CAM{id}_TYPE = {camera_type}",
+            u8::from(parameters.enable_focus_and_zoom_correlation),
+            parameters.focus_margin_gain,
+        ))
+        .exec()
+        .unwrap();
+    }
+
+    impl Sim {
+        fn new(cameras: &[&CameraActuators]) -> Self {
+            let cameras: Vec<(&CameraActuators, Setup)> = cameras
+                .iter()
+                .map(|camera| (*camera, Setup::PerCamera))
+                .collect();
+            Self::with(&cameras)
+        }
+
+        /// Each camera with the parameters of `setup` on the autopilot.
+        fn with(cameras: &[(&CameraActuators, Setup)]) -> Self {
+            let lua = Lua::new();
+            lua.load(AUTOPILOT).exec().unwrap();
+            for (camera, setup) in cameras {
+                put_on_channels(&lua, camera, *setup);
+                // Every scripting camera has a state from boot, with no command in it.
+                if *setup == Setup::PerCamera {
+                    lua.load(format!("state({})", camera.parameters.camera_id as u8 - 1))
+                        .exec()
+                        .unwrap();
+                }
+            }
+            let served: Vec<&CameraActuators> = cameras.iter().map(|(camera, _)| *camera).collect();
+            let script = generate_lua_script(&served).unwrap();
+            let (update, _delay): (Function, i64) = lua.load(script).call(()).unwrap();
+            let mut sim = Self {
+                lua,
+                update,
+                cameras: cameras
+                    .iter()
+                    .map(|(camera, setup)| ((*camera).clone(), *setup))
+                    .collect(),
+            };
+            // The script's start, then its first update.
+            sim.tick();
+            sim.tick();
+            sim
+        }
+
+        /// Runs the script once, 100 ms (its period) after the last run.
+        fn tick(&mut self) {
+            self.lua
+                .load("NOW = NOW + 100; WRITTEN = {}")
+                .exec()
+                .unwrap();
+            let (next, _delay): (Function, i64) = self.update.call(()).unwrap();
+            self.update = next;
+        }
+
+        /// What ArduPilot stores for camera `camera_id` when a command reaches it, then a run.
+        fn command(&mut self, camera_id: u8, field: &str, kind: u8, value: f32) {
+            self.lua
+                .load(
+                    format!(
+                        "local s = state({}); s.{field}_type = {kind}; s.{field}_value = {value}",
+                        camera_id - 1
+                    )
+                    .replace("NaN", "(0/0)"),
+                )
+                .exec()
+                .unwrap();
+            self.tick();
+        }
+
+        fn zoom(&mut self, value: f32, camera_id: u8) {
+            self.command(camera_id, "zoom", 2, value);
+        }
+
+        fn focus(&mut self, value: f32, camera_id: u8) {
+            self.command(camera_id, "focus", 2, value);
+        }
+
+        /// The outputs of the camera on `index`: zoom, focus, and the focus asked for.
+        fn outputs(&self, index: usize) -> [Option<i64>; 3] {
+            let (camera, setup) = &self.cameras[index];
+            let parameters = &camera.parameters;
+            [
+                parameters.zoom_function(*setup),
+                parameters.focus_function(*setup),
+                parameters.focus_input_function(*setup),
+            ]
+            .map(|function| {
+                self.lua
+                    .load(format!("return OUT[{}]", function as i16))
+                    .eval()
+                    .unwrap()
+            })
+        }
+
+        fn global<T: mlua::FromLua>(&self, expression: &str) -> T {
+            self.lua
+                .load(format!("return {expression}"))
+                .eval()
+                .unwrap()
+        }
+    }
+
+    // Zoom pwm 935 to 1850 and focus input pwm 870 to 2130, as the defaults.
+    fn zoom_pwm(percent: f64) -> i64 {
+        (935.0 + percent * (1850.0 - 935.0) / 100.0).round() as i64
+    }
+
     #[test]
     fn the_script_leaves_the_commands_to_ardupilot() {
         let [first, _] = both();
         let contents = generate_lua_script(&[&first]).unwrap();
         assert!(!contents.contains("block_command(") && !contents.contains("register_rx_msgid("));
         assert!(contents.contains("get_state(camera.id - 1)"));
+    }
+
+    #[test]
+    fn the_state_of_one_camera_moves_only_that_cameras_outputs() {
+        let [first, second] = both();
+        let mut sim = Sim::new(&[&first, &second]);
+        let (rest_first, rest_second) = (sim.outputs(0), sim.outputs(1));
+
+        sim.zoom(50.0, 1);
+        assert_eq!(sim.outputs(0)[0], Some(zoom_pwm(50.0)));
+        assert_eq!(sim.outputs(1), rest_second);
+        assert_ne!(sim.outputs(0), rest_first);
+
+        let after_zoom = sim.outputs(0);
+        sim.focus(75.0, 2);
+        assert_eq!(sim.outputs(0), after_zoom);
+        assert_ne!(sim.outputs(1), rest_second);
+
+        sim.zoom(100.0, 2);
+        assert_eq!(sim.outputs(1)[0], Some(1850));
+        assert_eq!(sim.outputs(0), after_zoom);
+    }
+
+    #[test]
+    fn the_script_channel_carries_the_focus_asked_for() {
+        let [first, second] = both();
+        let mut sim = Sim::new(&[&first, &second]);
+
+        // The manager reads it back to check the script runs: the focus input range is the
+        // script channel's, and it does not depend on the zoom or the calibration.
+        sim.focus(30.0, 1);
+        sim.zoom(80.0, 1);
+        assert_eq!(
+            sim.outputs(0)[2],
+            Some(870 + (0.3_f64 * 1260.0).round() as i64)
+        );
+        sim.focus(75.0, 2);
+        assert_eq!(
+            sim.outputs(1)[2],
+            Some(870 + (0.75_f64 * 1260.0).round() as i64)
+        );
+        assert_eq!(
+            sim.outputs(0)[2],
+            Some(870 + (0.3_f64 * 1260.0).round() as i64)
+        );
+    }
+
+    #[test]
+    fn a_camera_not_commanded_yet_keeps_the_trim() {
+        let [first, second] = both();
+        let mut sim = Sim::new(&[&first, &second]);
+        let at_trim = |sim: &Sim, index: usize| {
+            let parameters = &sim.cameras[index].0.parameters;
+            let [zoom, _, input] = sim.outputs(index);
+            zoom == Some(i64::from(parameters.zoom_channel_trim))
+                && input == Some(i64::from(parameters.script_channel_trim))
+        };
+
+        // A boot: nothing set the outputs, however long the script runs.
+        for _ in 0..20 {
+            sim.tick();
+        }
+        assert!(at_trim(&sim, 0) && at_trim(&sim, 1));
+        // What the other camera is told does not matter to it.
+        sim.zoom(70.0, 2);
+        assert!(at_trim(&sim, 0) && !at_trim(&sim, 1));
+    }
+
+    #[test]
+    fn a_rate_zoom_integrates_over_time_and_clamps() {
+        let [first, second] = both();
+        let mut sim = Sim::new(&[&first, &second]);
+        let start = 100.0 * (f64::from(first.parameters.zoom_channel_trim) - 935.0) / 915.0;
+        let rest_second = sim.outputs(1);
+
+        // 1 s at +1 and the default 5 %/s: 5 % further.
+        sim.command(1, "zoom", 1, 1.0);
+        for _ in 0..9 {
+            sim.tick();
+        }
+        assert_eq!(sim.outputs(0)[0], Some(zoom_pwm(start + 5.0)));
+
+        // The camera's own CAM1_ZOM_RAT_MAX, here 20 %/s, and a rate of half.
+        sim.lua.load("PARAMS.CAM1_ZOM_RAT_MAX = 20").exec().unwrap();
+        sim.command(1, "zoom", 1, 0.5);
+        for _ in 0..9 {
+            sim.tick();
+        }
+        assert_eq!(sim.outputs(0)[0], Some(zoom_pwm(start + 15.0)));
+
+        // Zero holds, however long.
+        sim.command(1, "zoom", 1, 0.0);
+        for _ in 0..30 {
+            sim.tick();
+        }
+        assert_eq!(sim.outputs(0)[0], Some(zoom_pwm(start + 15.0)));
+
+        // Clamped at both ends, with a rate past 1 taken as 1.
+        sim.command(1, "zoom", 1, 5.0);
+        for _ in 0..100 {
+            sim.tick();
+        }
+        assert_eq!(sim.outputs(0)[0], Some(1850));
+        sim.command(1, "zoom", 1, -1.0);
+        for _ in 0..100 {
+            sim.tick();
+        }
+        assert_eq!(sim.outputs(0)[0], Some(935));
+        // The other camera never moved.
+        assert_eq!(sim.outputs(1), rest_second);
+    }
+
+    #[test]
+    fn a_rate_focus_integrates_and_the_script_channel_follows() {
+        let [first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+        sim.focus(50.0, 1);
+        sim.command(1, "focus", 1, 1.0);
+        for _ in 0..99 {
+            sim.tick();
+        }
+        // 10 s at 5 %/s from 50 %.
+        assert_eq!(
+            sim.outputs(0)[2],
+            Some(870 + (1.0_f64 * 1260.0).round() as i64)
+        );
+    }
+
+    #[test]
+    fn types_the_script_does_not_follow_keep_the_position() {
+        let [first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+        sim.zoom(40.0, 1);
+        sim.focus(60.0, 1);
+        let held = sim.outputs(0);
+
+        // Autofocus (4), a type it does not know, and a NaN value change nothing.
+        sim.command(1, "focus", 4, 0.0);
+        sim.command(1, "zoom", 9, 100.0);
+        sim.command(1, "zoom", 2, f32::NAN);
+        assert_eq!(sim.outputs(0), held);
+    }
+
+    #[test]
+    fn a_percentage_out_of_range_is_clamped() {
+        let [first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+
+        sim.zoom(250.0, 1);
+        assert_eq!(sim.outputs(0)[0], Some(1850));
+        sim.zoom(-5.0, 1);
+        assert_eq!(sim.outputs(0)[0], Some(935));
+    }
+
+    #[test]
+    fn a_stalled_script_does_not_jump_when_it_runs_again() {
+        let [first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+        sim.zoom(10.0, 1);
+        sim.command(1, "zoom", 1, 1.0);
+        sim.lua.load("NOW = NOW + 600000").exec().unwrap();
+        sim.tick();
+        // Ten minutes of stall count as 1 s at most (5 %).
+        assert!(sim.outputs(0)[0].unwrap() <= zoom_pwm(10.0 + 5.0 + 1.0));
+    }
+
+    #[test]
+    fn the_focus_follows_the_zoom_through_the_calibration() {
+        let [mut first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+        // Focus input 1500 (50 %) at zoom 935 (0 %): between the closest and furthest lines.
+        sim.focus(50.0, 1);
+        sim.zoom(0.0, 1);
+        let at_wide = sim.outputs(0)[1].unwrap();
+        sim.zoom(100.0, 1);
+        let at_tele = sim.outputs(0)[1].unwrap();
+        assert!((834..=963).contains(&at_wide), "{at_wide}");
+        assert_ne!(at_wide, at_tele);
+
+        // Without the correlation the focus goes straight through.
+        first.parameters.enable_focus_and_zoom_correlation = false;
+        let mut sim = Sim::new(&[&first]);
+        sim.focus(50.0, 1);
+        sim.zoom(100.0, 1);
+        assert_eq!(sim.outputs(0)[1], sim.outputs(0)[2]);
+    }
+
+    #[test]
+    fn a_restart_keeps_the_position_and_a_boot_starts_at_trim() {
+        let [first, _] = both();
+        // A boot: the outputs were never set, the zoom starts at its trim.
+        let sim = Sim::new(&[&first]);
+        assert_eq!(
+            sim.outputs(0)[0],
+            Some(i64::from(first.parameters.zoom_channel_trim))
+        );
+
+        // A restart: the outputs keep what the last run set.
+        let mut restarted = Sim::new(&[&first]);
+        restarted.zoom(40.0, 1);
+        let script = generate_lua_script(&[&first]).unwrap();
+        let (update, _): (Function, i64) = restarted.lua.load(script).call(()).unwrap();
+        restarted.update = update;
+        restarted.tick();
+        restarted.tick();
+        assert_eq!(restarted.outputs(0)[0], Some(zoom_pwm(40.0)));
+    }
+
+    #[test]
+    fn a_missing_servo_function_is_reported_once_and_does_not_stop_the_script() {
+        let [first, _] = both();
+        let mut sim = Sim::new(&[&first]);
+        sim.lua
+            .load(format!(
+                "CHANNELS[{}] = nil",
+                first.parameters.zoom_function(Setup::PerCamera) as i16
+            ))
+            .exec()
+            .unwrap();
+        sim.tick();
+        sim.tick();
+
+        assert_eq!(
+            sim.global::<i64>("#TEXTS"),
+            1,
+            "{:?}",
+            sim.global::<Vec<String>>("TEXTS")
+        );
+        assert!(
+            sim.global::<String>("TEXTS[1]")
+                .contains("Script2 servo function not found")
+        );
     }
 
     #[test]
