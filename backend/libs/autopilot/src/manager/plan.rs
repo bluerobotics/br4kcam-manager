@@ -627,6 +627,14 @@ mod tests {
         }
     }
 
+    /// No camera set up yet, on an ArduSub older than 4.8.
+    fn shared() -> Snapshot {
+        Snapshot {
+            setup: Some(Setup::Shared),
+            ..empty()
+        }
+    }
+
     fn config_for(actuators: &CameraActuators) -> api::ActuatorsConfig {
         api::ActuatorsConfig::from(actuators)
     }
@@ -1609,5 +1617,98 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn an_ardusub_update_plans_the_per_camera_setup_over_the_shared_one() {
+        // Two cameras set up before ArduSub 4.8, then the firmware is updated.
+        let shared_two = {
+            let snapshot = set_up(shared(), CAMERA);
+            let plan = plan_apply(&snapshot, OTHER, &second_camera_config(), false).unwrap();
+            applied(snapshot, OTHER, &plan)
+        };
+        let updated = Snapshot {
+            setup: Some(Setup::PerCamera),
+            ..shared_two.clone()
+        };
+
+        // Each camera then owns its per-camera functions and type, which the autopilot does
+        // not hold yet: what drifts, and what re-applying writes.
+        for (uuid, functions) in [(CAMERA, [94.0, 95.0, 96.0]), (OTHER, [97.0, 98.0, 99.0])] {
+            let parameters = &updated.saved[&uuid].parameters;
+            let id = parameters.camera_id as u8;
+            let owned = owned(parameters);
+            let drifting: Vec<&String> = owned
+                .iter()
+                .filter(|(name, value)| held(&updated, name) != param_display_value(value))
+                .map(|(name, _)| name)
+                .collect();
+            assert!(drifting.contains(&&format!("CAM{id}_TYPE")), "{drifting:?}");
+
+            let plan =
+                plan_apply(&updated, uuid, &config_for(&updated.saved[&uuid]), false).unwrap();
+            assert_eq!(
+                written_value(&plan.writes, &format!("CAM{id}_TYPE")),
+                Some(7.0)
+            );
+            let after = applied(updated.clone(), uuid, &plan);
+            for (channel, function) in [
+                parameters.focus_channel,
+                parameters.zoom_channel,
+                parameters.script_channel,
+            ]
+            .into_iter()
+            .zip(functions)
+            {
+                let name = servo_param(channel, "FUNCTION");
+                assert_eq!(held(&after, &name), Some(function), "{name}");
+            }
+            assert!(plan.reboot);
+            // The script is the same on every firmware, so it stays.
+            assert_eq!(plan.script, ScriptAction::Keep);
+        }
+
+        // Applied, the setup stays put, and going back to an older ArduSub plans the shared
+        // setup again.
+        let updated = apply(updated, CAMERA, &config_for(&shared_two.saved[&CAMERA]));
+        let updated = apply(updated, OTHER, &config_for(&shared_two.saved[&OTHER]));
+        let plan = plan_apply(
+            &updated,
+            CAMERA,
+            &config_for(&updated.saved[&CAMERA]),
+            false,
+        )
+        .unwrap();
+        assert!(plan.writes.is_empty() && plan.script == ScriptAction::Keep && !plan.reboot);
+        let downgraded = Snapshot {
+            setup: Some(Setup::Shared),
+            ..updated
+        };
+        let plan = plan_apply(
+            &downgraded,
+            CAMERA,
+            &config_for(&downgraded.saved[&CAMERA]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(written_value(&plan.writes, "CAM1_TYPE"), Some(1.0));
+        assert_eq!(written_value(&plan.writes, "SERVO11_FUNCTION"), Some(180.0));
+    }
+
+    #[test]
+    fn the_shared_setup_plans_the_same_script_as_the_per_camera_one() {
+        // One script on every firmware, so an ArduSub update leaves it as it is.
+        let script = |start: Snapshot| {
+            let snapshot = set_up(start, CAMERA);
+            plan_apply(&snapshot, OTHER, &second_camera_config(), false)
+                .unwrap()
+                .script
+        };
+        let shared = script(shared());
+        let ScriptAction::Write(contents) = &shared else {
+            panic!("the second camera is added to the script");
+        };
+        assert!(contents.contains("BR4KCAM1_") && contents.contains("BR4KCAM2_"));
+        assert_eq!(shared, script(empty()));
     }
 }
