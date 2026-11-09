@@ -1,0 +1,21 @@
+---
+source: backend/libs/br4kcam_manager/tests/api_snapshots.rs
+expression: "parse_recorded::<T>(&path)"
+input_file: api/requests/pro_settings/auto_white_balance_keep_scene.json
+---
+ProSettings {
+    mode: None,
+    shutter: None,
+    iso: None,
+    max_iso: None,
+    max_shutter: None,
+    exposure_compensation: None,
+    white_balance: Some(
+        Auto {
+            scene: None,
+        },
+    ),
+    focus: None,
+    zoom: None,
+    tilt: None,
+}

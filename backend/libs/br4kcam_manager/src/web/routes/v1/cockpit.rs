@@ -24,6 +24,16 @@ pub struct CockpitExtras {
     pub widgets: Vec<CockpitIframeWidget>,
     pub actions: Vec<CockpitAction>,
     pub joystick_suggestions: Vec<JoystickMapSuggestion>,
+    pub web_sockets: Vec<CockpitWebSocket>,
+}
+
+/// WebSocket Cockpit offers the operator to connect to, to receive data-lake variables.
+#[derive(Debug, Serialize, Clone)]
+pub struct CockpitWebSocket {
+    /// User-facing name of what the connection carries
+    pub name: String,
+    /// Path on the extension's own address, starting with a slash
+    pub path: String,
 }
 
 /// Widget configuration object as received from BlueOS or anany external source
@@ -172,6 +182,17 @@ pub fn extras(cameras: &Cameras, fixed_focus_only: bool) -> CockpitExtras {
         widgets: widgets(cameras),
         actions: actions(cameras),
         joystick_suggestions: joystick_suggestions(cameras, fixed_focus_only),
+        // Two offers, so the operator opts in to polling every camera once a second.
+        web_sockets: vec![
+            CockpitWebSocket {
+                name: "4K Cam state".to_string(),
+                path: "/v1/cockpit/ws".to_string(),
+            },
+            CockpitWebSocket {
+                name: "4K Cam state and live exposure and color readings".to_string(),
+                path: "/v1/cockpit/ws?live=true".to_string(),
+            },
+        ],
     }
 }
 

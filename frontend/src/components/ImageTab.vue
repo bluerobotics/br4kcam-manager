@@ -190,6 +190,21 @@
         />
       </div>
       <BlueSlider
+        v-if="baseParams.auto_awb === BaseAutoWhiteBalanceModeValue.Temperature"
+        name="wb_temp"
+        label="White Balance Temperature"
+        :model-value="baseParams.wb_temp ?? 1500"
+        :min="1500"
+        :max="15000"
+        :step="100"
+        :format-display="(kelvin: number) => `${Math.round(kelvin)} K`"
+        :disabled="props.disabled || wbBusy"
+        theme="dark"
+        value-weight="regular"
+        label-width="130px"
+        @update:model-value="updateBaseParameter('wb_temp', $event)"
+      />
+      <BlueSlider
         name="awb_style_red"
         label="White Balance Style Red"
         :model-value="baseParams.awb_style_red ?? 0"
@@ -623,10 +638,12 @@
         theme="dark"
         @update:model-value="updateAdvancedParam('noiseReduction', $event)"
       />
+      <!-- Neither firmware (V16, V18) has wdr_sensor or wdr_level_sensor: shown only where the camera reports them. -->
       <BlueSlider
+        v-if="advancedParams.wdr_level_sensor != null"
         name="wdr_level_sensor"
         label="WDR Strength"
-        :model-value="advancedParams.wdr_level_sensor ?? 0"
+        :model-value="advancedParams.wdr_level_sensor"
         :min="0"
         :max="255"
         :step="1"
@@ -650,6 +667,7 @@
         @update:model-value="updateAdvancedParam('wdr_level', $event)"
       />
       <BlueSwitch
+        v-if="advancedParams.wdr_sensor != null"
         :model-value="advancedParams.wdr_sensor === AdvancedDisplayWDRSensorValue.Open"
         label="WDR Enable"
         :disabled="props.disabled"
@@ -779,10 +797,10 @@ import {
 import {
   BlueButton,
   BlueExpansiblePanel,
-  BlueSelect,
   BlueSlider,
   BlueSwitch,
 } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import { enumToOptions } from '@/utils/enumUtils'
 import { backendClient } from '@/utils/backendClient'
 import { useCameraState } from '@/utils/useCameraState'
@@ -827,6 +845,7 @@ const baseParams = ref<BaseParameterSetting>({
   awb_green: null,
   awb_blue: null,
   awb_auto_mode: null,
+  wb_temp: null,
   awb_style_red: null,
   awb_style_green: null,
   awb_style_blue: null,
@@ -882,13 +901,18 @@ const frameTurboOptions = enumToOptions(BaseFrameTurboValue)
 const sceneModeOptions = enumToOptions(AdvancedDisplaySceneModeValue)
 const autoExposureStrategyModeOptions = enumToOptions(BaseAutoExposureStrategyModeValue)
 const exposureModeOptions = enumToOptions(BaseExposureModeValue)
+// Named by the variant, not the value: 1/100000 s goes to the camera as 34464.
+const exposureLabel = (variant: string): string => {
+  const denominator = variant.slice(1)
+  return denominator === '1' ? '1 s' : `1/${denominator} s`
+}
 const exposureTimeOptions = enumToOptions(BaseExposureTimeValue).map(option => ({
   ...option,
-  name: `1/${option.value} s`
+  name: exposureLabel(BaseExposureTimeValue[option.value])
 }));
 const maxExposureOptions = enumToOptions(BaseMaxExposureValue).map(option => ({
   ...option,
-  name: `1/${option.value} s`
+  name: exposureLabel(BaseMaxExposureValue[option.value])
 }));
 const autoWhiteBalanceModeOptions = enumToOptions(BaseAutoWhiteBalanceModeValue)
 const autoWhiteBalanceSceneOptions = enumToOptions(BaseAutoWhiteBalanceSceneValue)
@@ -1000,36 +1024,6 @@ const updateBaseParameter = (param: keyof BaseParameterSetting, value: any) => {
           baseParams.value = { ...baseParams.value, [param]: prev as BaseParameterSetting[typeof param] }
         },
       )
-    })
-}
-
-const getBaseParameters = () => {
-  if (!props.selectedCameraUuid) {
-    return
-  }
-
-  const cameraUuid = props.selectedCameraUuid
-  const generation = imageRequestGeneration.value
-  const payload = {
-    camera_uuid: cameraUuid,
-    action: "getImageAdjustment",
-  }
-
-  backendClient.request('POST', '/camera/control', payload)
-    .then(data => {
-      if (
-        props.selectedCameraUuid !== cameraUuid ||
-        generation !== imageRequestGeneration.value
-      ) {
-        return
-      }
-      baseParams.value = pendingBase.mergeRemote(
-        data as BaseParameterSetting,
-      )
-      console.log(data)
-    })
-    .catch(error => {
-      console.error(`Error sending getImageAdjustment request:`, error.message)
     })
 }
 

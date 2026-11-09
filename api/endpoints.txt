@@ -46,3 +46,21 @@ EVENT camera/list
 EVENT camera/subscribe_rejected
 EVENT connection/stats
 EVENT system/health
+
+# PRO controls for integrators (any camera UUID; an unknown one answers 404 "unknown camera")
+HTTP GET /v1/pro/00000000-0000-0000-0000-000000000000
+HTTP PATCH /v1/pro/00000000-0000-0000-0000-000000000000
+HTTP GET /v1/pro/00000000-0000-0000-0000-000000000000/capabilities
+HTTP POST /v1/pro/00000000-0000-0000-0000-000000000000/white_balance/one_push
+HTTP GET /pro/00000000-0000-0000-0000-000000000000
+HTTP PATCH /pro/00000000-0000-0000-0000-000000000000
+HTTP GET /pro/00000000-0000-0000-0000-000000000000/capabilities
+HTTP POST /pro/00000000-0000-0000-0000-000000000000/white_balance/one_push
+WS GET /pro/00000000-0000-0000-0000-000000000000
+WS PATCH /pro/00000000-0000-0000-0000-000000000000
+WS GET /pro/00000000-0000-0000-0000-000000000000/capabilities
+WS POST /pro/00000000-0000-0000-0000-000000000000/white_balance/one_push
+
+# Cockpit data-lake feed, offered in cockpit_extras.json (variables: snapshots/cockpit_variables.snap)
+HTTP GET /v1/cockpit/ws
+HTTP GET /cockpit/ws

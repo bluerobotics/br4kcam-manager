@@ -427,7 +427,8 @@ import type {
   SetupResult,
   SystemHealth,
 } from '@/bindings/br4kcam_api'
-import { BlueButton, BlueIcon, BlueSelect, BlueSpinner, BlueTooltip } from '@bluerobotics/bluevue'
+import { BlueButton, BlueIcon, BlueSpinner, BlueTooltip } from '@bluerobotics/bluevue'
+import BlueSelect from '@/components/common/BlueSelect.vue'
 import CopyFeedbackToast from '@/components/CopyFeedbackToast.vue'
 import AutopilotRestartDialog from '@/components/AutopilotRestartDialog.vue'
 import StatusDialogShell from '@/components/StatusDialogShell.vue'
