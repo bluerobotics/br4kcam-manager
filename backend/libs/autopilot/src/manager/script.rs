@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use anyhow::{Context, Result};
 use br4kcam_api::LuaScriptStatus;
 use indexmap::IndexMap;
@@ -34,6 +36,13 @@ const SCRIPT_CONTENT_OWNERSHIP_MARKERS: &[&str] = &[
 ];
 
 const SCRIPT_HEALTH_STALE_THRESHOLD: u8 = 3;
+/// How long the per-camera script gets to show a focus command on its channel, it runs every
+/// 100 ms.
+const PER_CAMERA_SCRIPT_SETTLE: Duration = Duration::from_millis(500);
+/// Commands in a row the per-camera script did not show before it is called stuck.
+const PER_CAMERA_SCRIPT_STALE_THRESHOLD: u8 = 2;
+/// The channel is compared in PWM, which the script rounds to the microsecond.
+const PER_CAMERA_SCRIPT_PWM_TOLERANCE: f32 = 2.0;
 
 // Independent of `CARGO_PKG_VERSION`. Bump only when the template or generation logic
 // changes. Health compares script bodies and ignores the `--- Version:` header line.
@@ -399,6 +408,94 @@ impl ScriptHealthTracker {
         );
         self.stale_count = 0;
         true
+    }
+}
+
+/// Whether the per-camera setup's script runs, from the focus it shows on its channel: it
+/// writes the focus ArduPilot holds for the camera (what the manager commanded) to the script
+/// channel.
+#[derive(Debug, Default)]
+pub(crate) struct PerCameraScriptHealthTracker {
+    last: Option<(f32, Instant)>,
+    missed: u8,
+}
+
+impl PerCameraScriptHealthTracker {
+    /// A new focus command, `focus` in %, while the script channel reads `shown` PWM, within
+    /// `range` (min, max). The channel is judged against the command before this one, once
+    /// the script had time to follow it. Returns `true` when the script has not shown the last
+    /// few commands, so it is stopped or stuck.
+    fn update(&mut self, now: Instant, focus: f32, shown: u16, range: (u16, u16)) -> bool {
+        let previous = self.last.replace((focus, now));
+        let Some((asked, at)) =
+            previous.filter(|(_, at)| now.duration_since(*at) >= PER_CAMERA_SCRIPT_SETTLE)
+        else {
+            return false;
+        };
+
+        let (min, max) = (f32::from(range.0), f32::from(range.1));
+        let expected = min + asked.clamp(0.0, 100.0) * (max - min) / 100.0;
+        if (f32::from(shown) - expected).abs() <= PER_CAMERA_SCRIPT_PWM_TOLERANCE {
+            self.missed = 0;
+            // It answered, so whatever the autopilot reported earlier no longer stops it.
+            crate::health::clear_lua_script_failure();
+            return false;
+        }
+
+        self.missed = self.missed.saturating_add(1);
+        warn!(
+            "Lua script did not show focus {asked} % ({expected} us, reads {shown} us) {} time(s), asked {:?} ago",
+            self.missed,
+            now.duration_since(at)
+        );
+        if self.missed < PER_CAMERA_SCRIPT_STALE_THRESHOLD {
+            return false;
+        }
+        self.missed = 0;
+        true
+    }
+}
+
+impl Manager {
+    /// Judges the per-camera setup's script from a SERVO sample taken right after a focus
+    /// command, see [`PerCameraScriptHealthTracker`]. Returns `true` when a Lua reload should be
+    /// attempted; callers must do it **without** holding `MANAGER.write()`.
+    ///
+    /// It cannot tell a script that follows the focus but drives the servos wrongly, and says
+    /// nothing until a few focus commands went by; a zoom command is not judged.
+    pub fn apply_per_camera_focus_script_health_sample(
+        &mut self,
+        camera_uuid: &Uuid,
+        focus: f32,
+        servo_output_raw: &SERVO_OUTPUT_RAW_DATA,
+    ) -> bool {
+        // The shared setup's script channel is ArduPilot's CameraFocus, not the script's.
+        if crate::health::setup() != Some(Setup::PerCamera) {
+            return false;
+        }
+        // Until the camera's setup is restored after an ArduSub update, the script still drives
+        // it as a Servo camera, whose script channel is ArduPilot's CameraFocus.
+        if crate::health::has_parameter_drift(camera_uuid) {
+            return false;
+        }
+        let Some(parameters) = self
+            .settings
+            .actuators
+            .get(camera_uuid)
+            .map(|actuators| &actuators.parameters)
+            .filter(|parameters| parameters.has_motorized_lens())
+        else {
+            return false;
+        };
+        let Some(shown) = get_output_raw_from_channel(servo_output_raw, parameters.script_channel)
+        else {
+            return false;
+        };
+        let range = (parameters.script_channel_min, parameters.script_channel_max);
+        self.per_camera_script_health
+            .entry(*camera_uuid)
+            .or_default()
+            .update(Instant::now(), focus, shown, range)
     }
 }
 

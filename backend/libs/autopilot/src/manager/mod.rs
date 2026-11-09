@@ -6,6 +6,8 @@ mod script;
 mod tilt;
 mod zoom;
 
+use std::collections::HashMap;
+
 use ::mavlink::ardupilotmega::SERVO_OUTPUT_RAW_DATA;
 use anyhow::{Context, Result};
 use futures::future::BoxFuture;
@@ -143,6 +145,7 @@ pub struct Manager {
     pub autopilot_scripts_file: String,
     pub settings: State,
     pub(crate) script_health: ScriptHealthTracker,
+    pub(crate) per_camera_script_health: HashMap<Uuid, script::PerCameraScriptHealthTracker>,
 }
 
 #[derive(Debug)]
@@ -535,6 +538,7 @@ pub async fn init(
         let mut guard = manager.write().await;
         guard.autopilot_scripts_file = autopilot_scripts_file.clone();
         guard.script_health = ScriptHealthTracker::default();
+        guard.per_camera_script_health.clear();
         guard.settings = settings;
     } else {
         MANAGER.get_or_init(|| {
@@ -542,6 +546,7 @@ pub async fn init(
                 autopilot_scripts_file: autopilot_scripts_file.clone(),
                 settings,
                 script_health: ScriptHealthTracker::default(),
+                per_camera_script_health: HashMap::new(),
             })
         });
     }
